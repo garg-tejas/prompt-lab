@@ -15,6 +15,8 @@ import { DatasetListPage } from "@/pages/datasets/list";
 import { DatasetDetailPage } from "@/pages/datasets/detail";
 import { DatasetUploadPage } from "@/pages/datasets/upload";
 import { DatasetSyntheticPage } from "@/pages/datasets/synthetic";
+import { ModelListPage } from "@/pages/models/list";
+import { ModelCreatePage } from "@/pages/models/create";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -59,6 +61,8 @@ function App() {
             <Route path="datasets/:id" element={<DatasetDetailPage />} />
             <Route path="datasets/upload" element={<DatasetUploadPage />} />
             <Route path="datasets/synthetic" element={<DatasetSyntheticPage />} />
+            <Route path="models" element={<ModelListPage />} />
+            <Route path="models/new" element={<ModelCreatePage />} />
           </Route>
         </Routes>
       </Suspense>

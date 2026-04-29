@@ -29,8 +29,13 @@ async def create_dataset(db: AsyncSession, data, owner: User) -> Dataset:
         db.add(row)
 
     await db.commit()
-    await db.refresh(dataset)
-    return dataset
+    # Re-fetch with rows loaded to avoid lazy-load error in async context
+    result = await db.execute(
+        select(Dataset)
+        .options(selectinload(Dataset.rows))
+        .where(Dataset.id == dataset.id)
+    )
+    return result.scalar_one()
 
 
 async def get_dataset(db: AsyncSession, dataset_id: UUID) -> Optional[Dataset]:

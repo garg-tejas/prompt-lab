@@ -17,6 +17,8 @@ import { DatasetUploadPage } from "@/pages/datasets/upload";
 import { DatasetSyntheticPage } from "@/pages/datasets/synthetic";
 import { ModelListPage } from "@/pages/models/list";
 import { ModelCreatePage } from "@/pages/models/create";
+import { TrendsPage } from "@/pages/analytics/trends";
+import { RunComparisonPage } from "@/pages/analytics/compare";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -63,6 +65,8 @@ function App() {
             <Route path="datasets/synthetic" element={<DatasetSyntheticPage />} />
             <Route path="models" element={<ModelListPage />} />
             <Route path="models/new" element={<ModelCreatePage />} />
+            <Route path="trends/:promptId" element={<TrendsPage />} />
+            <Route path="compare" element={<RunComparisonPage />} />
           </Route>
         </Routes>
       </Suspense>

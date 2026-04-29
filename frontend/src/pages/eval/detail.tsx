@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { EvalRunDetailResponse } from "@/types/eval";
-import { ArrowLeft, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Loader2, Download } from "lucide-react";
 
 export function EvalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -47,6 +47,12 @@ export function EvalDetailPage() {
 
   const isRunning = run.status === "running" || run.status === "pending";
 
+  const handleExport = (format: "json" | "csv") => {
+    if (!id) return;
+    const url = `/api/v1/eval-runs/${id}/export/${format}`;
+    window.open(url, "_blank");
+  };
+
   return (
     <div className="container py-8 space-y-6">
       <div className="flex items-center gap-4">
@@ -69,6 +75,28 @@ export function EvalDetailPage() {
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
+        )}
+        {run.status === "completed" && (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => handleExport("json")}
+            >
+              <Download className="h-4 w-4" />
+              JSON
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => handleExport("csv")}
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </Button>
+          </>
         )}
       </div>
 

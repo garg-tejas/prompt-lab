@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PromptForm } from "@/components/prompt-form";
 import type { Prompt } from "@/types";
-import { GitBranch, Plus, Tag } from "lucide-react";
+import { GitBranch, Plus, Tag, TrendingUp } from "lucide-react";
 
 export function PromptListPage() {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
@@ -106,6 +106,16 @@ export function PromptListPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/trends/${prompt.id}`);
+                      }}
+                      className="flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Trends
+                    </button>
                     <div className="flex items-center gap-1">
                       <GitBranch className="h-3.5 w-3.5" />
                       {prompt.version_count} versions

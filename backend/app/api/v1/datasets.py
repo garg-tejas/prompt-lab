@@ -40,14 +40,26 @@ async def upload_dataset(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    rows = await file_parser.parse_upload_file(file)
-    data = DatasetCreate(
-        name=name,
-        description=description or None,
-        domain_tag=domain_tag or None,
-        rows=[DatasetRowBase(**r) for r in rows],
-    )
-    dataset = await dataset_service.create_dataset(db, data, user)
+    try:
+        rows = await file_parser.parse_upload_file(file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File parsing error: {e}")
+
+    try:
+        data = DatasetCreate(
+            name=name,
+            description=description or None,
+            domain_tag=domain_tag or None,
+            rows=[DatasetRowBase(**r) for r in rows],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Data validation error: {e}")
+
+    try:
+        dataset = await dataset_service.create_dataset(db, data, user)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
     return DatasetResponse(
         id=dataset.id,
         name=dataset.name,

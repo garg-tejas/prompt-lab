@@ -8,6 +8,9 @@ import { PromptDetailPage } from "@/pages/prompts/detail";
 import { EvalWizardPage } from "@/pages/eval/wizard";
 import { EvalHistoryPage } from "@/pages/eval/history";
 import { EvalDetailPage } from "@/pages/eval/detail";
+import { ABTestListPage } from "@/pages/ab-tests/list";
+import { ABTestCreatePage } from "@/pages/ab-tests/create";
+import { ABTestDetailPage } from "@/pages/ab-tests/detail";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -45,6 +48,9 @@ function App() {
             <Route path="runs" element={<EvalHistoryPage />} />
             <Route path="runs/new" element={<EvalWizardPage />} />
             <Route path="runs/:id" element={<EvalDetailPage />} />
+            <Route path="ab-tests" element={<ABTestListPage />} />
+            <Route path="ab-tests/new" element={<ABTestCreatePage />} />
+            <Route path="ab-tests/:id" element={<ABTestDetailPage />} />
           </Route>
         </Routes>
       </Suspense>

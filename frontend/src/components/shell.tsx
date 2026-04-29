@@ -43,6 +43,12 @@ export function Shell() {
               >
                 Runs
               </Link>
+              <Link
+                to="/ab-tests"
+                className="transition-colors hover:text-primary text-muted-foreground"
+              >
+                A/B Tests
+              </Link>
             </nav>
           )}
 

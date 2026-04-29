@@ -3,7 +3,8 @@ import { Routes, Route } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { Shell } from "@/components/shell";
 import { AuthSync } from "@/components/auth-sync";
-import { HomePage } from "@/pages/home";
+import { PromptListPage } from "@/pages/prompts/list";
+import { PromptDetailPage } from "@/pages/prompts/detail";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -36,7 +37,8 @@ function App() {
           <Route path="/sign-in/*" element={<SignInPage />} />
           <Route path="/sign-up/*" element={<SignUpPage />} />
           <Route path="/*" element={<Shell />}>
-            <Route index element={<HomePage />} />
+            <Route index element={<PromptListPage />} />
+            <Route path="prompts/:id" element={<PromptDetailPage />} />
           </Route>
         </Routes>
       </Suspense>

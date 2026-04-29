@@ -5,10 +5,10 @@ from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 
-router = APIRouter(prefix="/api/v1", tags=["v1"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.get("/auth/me")
+@router.get("/me")
 async def get_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

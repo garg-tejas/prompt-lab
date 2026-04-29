@@ -116,7 +116,7 @@ async def list_datasets(
             domain_tag=d.domain_tag,
             owner_id=d.owner_id,
             created_at=d.created_at,
-            row_count=len(d.rows) if hasattr(d, "rows") else 0,
+            row_count=len(d.rows),
         )
         for d in datasets
     ]

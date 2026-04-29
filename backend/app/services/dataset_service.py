@@ -50,6 +50,7 @@ async def get_dataset(db: AsyncSession, dataset_id: UUID) -> Optional[Dataset]:
 async def list_datasets(db: AsyncSession, owner: User) -> List[Dataset]:
     result = await db.execute(
         select(Dataset)
+        .options(selectinload(Dataset.rows))
         .where(Dataset.owner_id == owner.id)
         .order_by(Dataset.created_at.desc())
     )

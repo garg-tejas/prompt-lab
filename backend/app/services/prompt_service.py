@@ -69,11 +69,23 @@ async def create_prompt(db: AsyncSession, data, owner: User) -> Prompt:
 
     if data.tags:
         tags = await get_or_create_tags(db, data.tags)
+        # Eager-load tags before mutating to avoid lazy-load in async context
+        result = await db.execute(
+            select(Prompt)
+            .options(selectinload(Prompt.tags))
+            .where(Prompt.id == prompt.id)
+        )
+        prompt = result.scalar_one()
         prompt.tags.extend(tags)
 
     await db.commit()
-    await db.refresh(prompt)
-    return prompt
+    # Re-fetch with relationships loaded to avoid lazy-load errors in async context
+    result = await db.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tags), selectinload(Prompt.versions))
+        .where(Prompt.id == prompt.id)
+    )
+    return result.scalar_one()
 
 
 async def get_prompt(db: AsyncSession, prompt_id: UUID) -> Optional[Prompt]:
@@ -107,8 +119,13 @@ async def update_prompt(
         prompt.tags = tags
     prompt.updated_at = datetime.utcnow()
     await db.commit()
-    await db.refresh(prompt)
-    return prompt
+    # Re-fetch with relationships loaded to avoid lazy-load errors in async context
+    result = await db.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tags), selectinload(Prompt.versions))
+        .where(Prompt.id == prompt.id)
+    )
+    return result.scalar_one()
 
 
 async def create_version(
@@ -209,5 +226,10 @@ async def fork_prompt(
     )
     db.add(new_version)
     await db.commit()
-    await db.refresh(new_prompt)
-    return new_prompt
+    # Re-fetch with relationships loaded to avoid lazy-load errors in async context
+    result = await db.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tags), selectinload(Prompt.versions))
+        .where(Prompt.id == new_prompt.id)
+    )
+    return result.scalar_one()

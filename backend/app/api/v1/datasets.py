@@ -61,12 +61,12 @@ async def upload_dataset(
 
 @router.post("/synthetic", response_model=DatasetResponse)
 async def generate_synthetic(
-    name: str,
-    context: str,
-    num_pairs: int = 5,
-    description: str = "",
-    domain_tag: str = "",
-    model_id: UUID = None,  # type: ignore[assignment]
+    name: str = Form(...),
+    context: str = Form(...),
+    num_pairs: int = Form(5),
+    description: str = Form(""),
+    domain_tag: str = Form(""),
+    model_id: UUID = Form(None),  # type: ignore[assignment]
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

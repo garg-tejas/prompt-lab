@@ -11,6 +11,10 @@ import { EvalDetailPage } from "@/pages/eval/detail";
 import { ABTestListPage } from "@/pages/ab-tests/list";
 import { ABTestCreatePage } from "@/pages/ab-tests/create";
 import { ABTestDetailPage } from "@/pages/ab-tests/detail";
+import { DatasetListPage } from "@/pages/datasets/list";
+import { DatasetDetailPage } from "@/pages/datasets/detail";
+import { DatasetUploadPage } from "@/pages/datasets/upload";
+import { DatasetSyntheticPage } from "@/pages/datasets/synthetic";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -51,6 +55,10 @@ function App() {
             <Route path="ab-tests" element={<ABTestListPage />} />
             <Route path="ab-tests/new" element={<ABTestCreatePage />} />
             <Route path="ab-tests/:id" element={<ABTestDetailPage />} />
+            <Route path="datasets" element={<DatasetListPage />} />
+            <Route path="datasets/:id" element={<DatasetDetailPage />} />
+            <Route path="datasets/upload" element={<DatasetUploadPage />} />
+            <Route path="datasets/synthetic" element={<DatasetSyntheticPage />} />
           </Route>
         </Routes>
       </Suspense>

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { Shell } from "@/components/shell";
+import { AuthSync } from "@/components/auth-sync";
 import { HomePage } from "@/pages/home";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
@@ -20,23 +21,26 @@ function App() {
   }
 
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-screen w-screen items-center justify-center bg-background">
-          <div className="font-mono text-sm text-muted-foreground animate-pulse">
-            Loading...
+    <>
+      <AuthSync />
+      <Suspense
+        fallback={
+          <div className="flex h-screen w-screen items-center justify-center bg-background">
+            <div className="font-mono text-sm text-muted-foreground animate-pulse">
+              Loading...
+            </div>
           </div>
-        </div>
-      }
-    >
-      <Routes>
-        <Route path="/sign-in/*" element={<SignInPage />} />
-        <Route path="/sign-up/*" element={<SignUpPage />} />
-        <Route path="/*" element={<Shell />}>
-          <Route index element={<HomePage />} />
-        </Route>
-      </Routes>
-    </Suspense>
+        }
+      >
+        <Routes>
+          <Route path="/sign-in/*" element={<SignInPage />} />
+          <Route path="/sign-up/*" element={<SignUpPage />} />
+          <Route path="/*" element={<Shell />}>
+            <Route index element={<HomePage />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </>
   );
 }
 

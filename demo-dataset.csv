@@ -1,0 +1,4 @@
+question,context,expected_answer
+"What is the capital of France?","France is a country in Western Europe. Its capital is Paris, which is also the largest city.","Paris"
+"Who wrote Hamlet?","William Shakespeare was an English playwright and poet. He wrote Hamlet around 1599-1601.","William Shakespeare"
+"What is the speed of light?","The speed of light in a vacuum is exactly 299,792,458 meters per second.","299,792,458 m/s"

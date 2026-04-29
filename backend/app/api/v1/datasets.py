@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -33,9 +33,9 @@ async def create_dataset(
 
 @router.post("/upload", response_model=DatasetResponse)
 async def upload_dataset(
-    name: str,
-    description: str = "",
-    domain_tag: str = "",
+    name: str = Form(...),
+    description: str = Form(""),
+    domain_tag: str = Form(""),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),

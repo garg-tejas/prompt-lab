@@ -1,22 +1,18 @@
 import { useEffect } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { setAuthToken } from "@/lib/api";
+import { setTokenGetter } from "@/lib/api";
 
 export function AuthSync() {
   const { getToken, isSignedIn } = useAuth();
 
   useEffect(() => {
     if (!isSignedIn) {
-      setAuthToken(null);
+      setTokenGetter(null);
       return;
     }
 
-    const sync = async () => {
-      const token = await getToken();
-      setAuthToken(token);
-    };
-
-    sync();
+    // Register the token getter so axios can fetch a fresh token before each request
+    setTokenGetter(() => getToken());
   }, [isSignedIn, getToken]);
 
   return null;

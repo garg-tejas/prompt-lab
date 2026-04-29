@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload } from "lucide-react";
+import { ArrowLeft, Upload, FileText } from "lucide-react";
 
 export function DatasetUploadPage() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [domainTag, setDomainTag] = useState("");
@@ -85,12 +86,29 @@ export function DatasetUploadPage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">File (.csv or .json)</label>
-              <Input
-                type="file"
-                accept=".csv,.json"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                required
-              />
+              <div className="flex items-center gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.json"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="sr-only"
+                  id="dataset-file"
+                  required
+                />
+                <label
+                  htmlFor="dataset-file"
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80"
+                >
+                  <FileText className="h-4 w-4" />
+                  {file ? file.name : "Choose file"}
+                </label>
+                {file && (
+                  <span className="text-xs text-muted-foreground">
+                    {(file.size / 1024).toFixed(1)} KB
+                  </span>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

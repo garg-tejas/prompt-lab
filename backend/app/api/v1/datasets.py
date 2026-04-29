@@ -8,7 +8,7 @@ from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.services import dataset_service, file_parser
-from app.schemas.eval import DatasetCreate, DatasetResponse, DatasetDetailResponse
+from app.schemas.eval import DatasetCreate, DatasetResponse, DatasetDetailResponse, DatasetRowBase
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -45,14 +45,6 @@ async def upload_dataset(
         name=name,
         description=description or None,
         domain_tag=domain_tag or None,
-        rows=[DatasetCreate.model_validate({"rows": rows}).rows[0].model_copy() if False else r for r in rows],
-    )
-    # Build proper rows
-    from app.schemas.eval import DatasetRowBase
-    data = DatasetCreate(
-        name=name,
-        description=description or None,
-        domain_tag=domain_tag or None,
         rows=[DatasetRowBase(**r) for r in rows],
     )
     dataset = await dataset_service.create_dataset(db, data, user)
@@ -80,7 +72,6 @@ async def generate_synthetic(
 ):
     from app.services.synthetic_service import generate_qa_pairs
     rows = await generate_qa_pairs(db, context, num_pairs, model_id, user)
-    from app.schemas.eval import DatasetRowBase
     data = DatasetCreate(
         name=name,
         description=description or None,

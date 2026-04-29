@@ -26,9 +26,7 @@ export function DatasetUploadPage() {
     formData.append("domain_tag", domainTag);
 
     try {
-      await api.post("/api/v1/datasets/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/api/v1/datasets/upload", formData);
       navigate("/datasets");
     } catch (err) {
       console.error("Failed to upload dataset", err);

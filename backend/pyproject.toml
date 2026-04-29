@@ -1,13 +1,14 @@
 [project]
-name = "backend"
+name = "PromptLab"
 version = "0.1.0"
-description = "Add your description here"
+description = "A platform for versioning prompts and evaluating them rigorously"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "celery>=5.6.3",
+    "datasets>=4.8.5",
     "email-validator>=2.3.0",
     "fastapi>=0.136.1",
     "httpx>=0.28.1",

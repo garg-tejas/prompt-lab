@@ -5,6 +5,9 @@ import { Shell } from "@/components/shell";
 import { AuthSync } from "@/components/auth-sync";
 import { PromptListPage } from "@/pages/prompts/list";
 import { PromptDetailPage } from "@/pages/prompts/detail";
+import { EvalWizardPage } from "@/pages/eval/wizard";
+import { EvalHistoryPage } from "@/pages/eval/history";
+import { EvalDetailPage } from "@/pages/eval/detail";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -39,6 +42,9 @@ function App() {
           <Route path="/*" element={<Shell />}>
             <Route index element={<PromptListPage />} />
             <Route path="prompts/:id" element={<PromptDetailPage />} />
+            <Route path="runs" element={<EvalHistoryPage />} />
+            <Route path="runs/new" element={<EvalWizardPage />} />
+            <Route path="runs/:id" element={<EvalDetailPage />} />
           </Route>
         </Routes>
       </Suspense>

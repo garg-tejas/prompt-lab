@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +11,7 @@ export function DatasetListPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { isSignedIn } = useAuth();
 
   const fetchDatasets = async () => {
     setLoading(true);
@@ -24,8 +26,10 @@ export function DatasetListPage() {
   };
 
   useEffect(() => {
-    fetchDatasets();
-  }, []);
+    if (isSignedIn) {
+      fetchDatasets();
+    }
+  }, [isSignedIn]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this dataset?")) return;

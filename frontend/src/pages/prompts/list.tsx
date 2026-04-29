@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@clerk/clerk-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,7 @@ export function PromptListPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const navigate = useNavigate();
+  const { isSignedIn } = useAuth();
 
   const fetchPrompts = async () => {
     setLoading(true);
@@ -26,8 +28,10 @@ export function PromptListPage() {
   };
 
   useEffect(() => {
-    fetchPrompts();
-  }, []);
+    if (isSignedIn) {
+      fetchPrompts();
+    }
+  }, [isSignedIn]);
 
   return (
     <div className="container py-8">

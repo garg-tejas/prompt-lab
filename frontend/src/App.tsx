@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { Shell } from "@/components/shell";
-import { AuthSync } from "@/components/auth-sync";
+import { useApiAuth } from "@/hooks/useApiAuth";
 import { PromptListPage } from "@/pages/prompts/list";
 import { PromptDetailPage } from "@/pages/prompts/detail";
 import { EvalWizardPage } from "@/pages/eval/wizard";
@@ -24,6 +24,7 @@ import { SignUpPage } from "@/pages/sign-up";
 
 function App() {
   const { isLoaded } = useAuth();
+  useApiAuth();
 
   if (!isLoaded) {
     return (
@@ -36,9 +37,7 @@ function App() {
   }
 
   return (
-    <>
-      <AuthSync />
-      <Suspense
+    <Suspense
         fallback={
           <div className="flex h-screen w-screen items-center justify-center bg-background">
             <div className="font-mono text-sm text-muted-foreground animate-pulse">
@@ -70,7 +69,6 @@ function App() {
           </Route>
         </Routes>
       </Suspense>
-    </>
   );
 }
 

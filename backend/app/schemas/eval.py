@@ -68,7 +68,7 @@ class ModelEndpointResponse(ModelEndpointBase):
 # EvalRun Schemas
 class EvalConfig(BaseModel):
     sample_size: Optional[int] = None
-    concurrency: int = 1
+    concurrency: int = 5
     retry_count: int = 2
 
 

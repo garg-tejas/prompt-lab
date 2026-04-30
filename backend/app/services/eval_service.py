@@ -1,3 +1,4 @@
+import asyncio
 import json
 import random
 import time
@@ -121,7 +122,7 @@ async def judge_metric(
         except Exception:
             if attempt == retries:
                 return {"score": 0.0, "explanation": f"Failed to evaluate {metric_name}"}
-            await __import__("asyncio").sleep(1 * (2**attempt))
+            await asyncio.sleep(1 * (2**attempt))
     return {"score": 0.0, "explanation": "Unknown error"}
 
 
@@ -168,18 +169,24 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
             if sample_size and 0 < sample_size < len(rows):
                 rows = random.sample(rows, sample_size)
 
+            batch_size: int = eval_run.config.get("concurrency") or 5
+            retry_count: int = eval_run.config.get("retry_count", 2)
+
             results_summary = {
                 "total_samples": len(rows),
                 "metrics": {},
+                "failed_rows": 0,
             }
 
-            for row in rows:
+            async def process_row(row: DatasetRow) -> dict:
+                """Run target model + all judge metrics for a single row.
+                Returns a dict of metric_name -> judgment so the caller can
+                accumulate scores without any shared mutable state."""
                 filled_prompt = fill_template(
                     prompt_version.content,
                     {"question": row.question, "context": row.context},
                 )
 
-                # Target model call
                 response, latency_ms = await call_llm(
                     target_model,
                     [{"role": "user", "content": filled_prompt}],
@@ -195,38 +202,64 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                         + output_tokens / 1000 * target_model.cost_per_1k_output
                     )
 
-                eval_result = EvalResult(
-                    eval_run_id=eval_run.id,
-                    dataset_row_id=row.id,
-                    output=output,
-                    latency_ms=latency_ms,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    estimated_cost=cost,
+                # Run all 4 judge calls concurrently for this row
+                metric_names = ["faithfulness", "answer_relevance", "context_precision", "context_recall"]
+                judgments = await asyncio.gather(
+                    *[
+                        judge_metric(m, row.question, row.context, output, judge_model, retries=retry_count)
+                        for m in metric_names
+                    ]
                 )
-                db.add(eval_result)
-                await db.flush()
 
-                # Judge metrics
-                for metric_name in ["faithfulness", "answer_relevance", "context_precision", "context_recall"]:
-                    judgment = await judge_metric(
-                        metric_name,
-                        row.question,
-                        row.context,
-                        output,
-                        judge_model,
-                        retries=eval_run.config.get("retry_count", 2),
-                    )
-                    score = MetricScore(
-                        eval_result_id=eval_result.id,
-                        metric_name=metric_name,
-                        score=judgment["score"],
-                        explanation=judgment["explanation"],
-                        judge_model_id=judge_model.id,
-                    )
-                    db.add(score)
-                    results_summary["metrics"].setdefault(metric_name, []).append(judgment["score"])
+                return {
+                    "row": row,
+                    "output": output,
+                    "latency_ms": latency_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost": cost,
+                    "judgments": dict(zip(metric_names, judgments)),
+                }
 
+            # Process rows in batches of `batch_size` to respect rate limits
+            for batch_start in range(0, len(rows), batch_size):
+                batch = rows[batch_start : batch_start + batch_size]
+
+                batch_results = await asyncio.gather(
+                    *[process_row(row) for row in batch],
+                    return_exceptions=True,
+                )
+
+                for item in batch_results:
+                    if isinstance(item, Exception):
+                        results_summary["failed_rows"] += 1
+                        continue
+
+                    row = item["row"]
+                    eval_result = EvalResult(
+                        eval_run_id=eval_run.id,
+                        dataset_row_id=row.id,
+                        output=item["output"],
+                        latency_ms=item["latency_ms"],
+                        input_tokens=item["input_tokens"],
+                        output_tokens=item["output_tokens"],
+                        estimated_cost=item["cost"],
+                    )
+                    db.add(eval_result)
+                    await db.flush()
+
+                    for metric_name, judgment in item["judgments"].items():
+                        score = MetricScore(
+                            eval_result_id=eval_result.id,
+                            metric_name=metric_name,
+                            score=judgment["score"],
+                            explanation=judgment["explanation"],
+                            judge_model_id=judge_model.id,
+                        )
+                        db.add(score)
+                        results_summary["metrics"].setdefault(metric_name, []).append(judgment["score"])
+
+                # Commit after each batch so partial progress is saved
                 await db.commit()
 
             # Compute summary stats

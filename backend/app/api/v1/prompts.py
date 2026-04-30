@@ -12,6 +12,7 @@ from app.schemas.prompt import (
     PromptCreate,
     PromptDetailResponse,
     PromptListResponse,
+    PromptTagResponse,
     PromptUpdate,
     PromptVersionCreate,
     PromptVersionResponse,

@@ -3,6 +3,8 @@ from typing import List
 from uuid import UUID
 
 from openai import AsyncOpenAI
+
+from app.core.crypto import decrypt_secret
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.model import ModelEndpoint
@@ -44,7 +46,7 @@ async def generate_qa_pairs(
         if not model:
             raise ValueError("No judge model available. Register one first.")
 
-    client = AsyncOpenAI(base_url=model.base_url, api_key=model.api_key)
+    client = AsyncOpenAI(base_url=model.base_url, api_key=decrypt_secret(model.api_key))
     prompt = SYNTHETIC_PROMPT.format(context=context, num_pairs=num_pairs)
 
     response = await client.chat.completions.create(

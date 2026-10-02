@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.crypto import encrypt_secret
 from app.models.model import ModelEndpoint
 from app.models.user import User
 
@@ -14,7 +15,7 @@ async def create_model_endpoint(db: AsyncSession, data, owner: User) -> ModelEnd
         model_name=data.model_name,
         provider=data.provider,
         base_url=data.base_url,
-        api_key=data.api_key,
+        api_key=encrypt_secret(data.api_key),
         context_window=data.context_window,
         cost_per_1k_input=data.cost_per_1k_input,
         cost_per_1k_output=data.cost_per_1k_output,

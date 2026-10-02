@@ -10,20 +10,30 @@ export function EvalHistoryPage() {
   const [runs, setRuns] = useState<EvalRunResponse[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchRuns = async () => {
-    setLoading(true);
+  const fetchRuns = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get("/api/v1/eval-runs");
       setRuns(res.data);
+      return res.data as EvalRunResponse[];
     } catch (err) {
       console.error("Failed to fetch eval runs", err);
+      return [];
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRuns();
+    let timer: number | undefined;
+    const tick = async (silent: boolean) => {
+      const rows = await fetchRuns(silent);
+      if (rows.some((run) => run.status === "pending" || run.status === "running")) {
+        timer = window.setTimeout(() => tick(true), 3000);
+      }
+    };
+    tick(false);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const statusIcon = (status: string) => {

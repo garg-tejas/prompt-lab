@@ -4,6 +4,7 @@ export interface DatasetRow {
   question: string;
   context: string;
   expected_answer: string | null;
+  extras: Record<string, string> | null;
   created_at: string;
 }
 
@@ -57,7 +58,9 @@ export interface EvalRunResponse {
 export interface MetricScoreResponse {
   id: string;
   metric_name: string;
-  score: number;
+  score: number | null;
+  human_score: number | null;
+  human_note: string | null;
   explanation: string | null;
   judge_model_id: string;
   created_at: string;

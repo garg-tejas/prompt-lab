@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,7 @@ export function EvalWizardPage() {
 
   const [name, setName] = useState("");
   const [sampleSize, setSampleSize] = useState("");
+  const [concurrency, setConcurrency] = useState("4");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -43,14 +45,14 @@ export function EvalWizardPage() {
         judge_model_id: selectedJudge.id,
         config: {
           sample_size: sampleSize ? parseInt(sampleSize) : null,
-          concurrency: 1,
+          concurrency: concurrency ? parseInt(concurrency) : 4,
           retry_count: 2,
         },
       });
       navigate(`/runs/${res.data.id}`);
     } catch (err) {
       console.error("Failed to create eval run", err);
-      alert("Failed to create eval run");
+      notify("Failed to create eval run");
     } finally {
       setSubmitting(false);
     }
@@ -239,6 +241,15 @@ export function EvalWizardPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., v1.1 baseline eval"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Concurrent rows</label>
+              <Input
+                type="number"
+                min={1}
+                value={concurrency}
+                onChange={(e) => setConcurrency(e.target.value)}
               />
             </div>
             <div className="space-y-2">

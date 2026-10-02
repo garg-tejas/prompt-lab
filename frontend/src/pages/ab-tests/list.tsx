@@ -10,20 +10,30 @@ export function ABTestListPage() {
   const [tests, setTests] = useState<ABTestResponse[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchTests = async () => {
-    setLoading(true);
+  const fetchTests = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get("/api/v1/ab-tests");
       setTests(res.data);
+      return res.data as ABTestResponse[];
     } catch (err) {
       console.error("Failed to fetch AB tests", err);
+      return [];
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTests();
+    let timer: number | undefined;
+    const tick = async (silent: boolean) => {
+      const rows = await fetchTests(silent);
+      if (rows.some((test) => test.status === "pending" || test.status === "running")) {
+        timer = window.setTimeout(() => tick(true), 3000);
+      }
+    };
+    tick(false);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const statusIcon = (status: string) => {

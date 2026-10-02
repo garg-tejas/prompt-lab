@@ -12,21 +12,31 @@ export function ABTestDetailPage() {
   const [test, setTest] = useState<ABTestDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchTest = async () => {
-    if (!id) return;
-    setLoading(true);
+  const fetchTest = async (silent = false) => {
+    if (!id) return null;
+    if (!silent) setLoading(true);
     try {
       const res = await api.get(`/api/v1/ab-tests/${id}`);
       setTest(res.data);
+      return res.data as ABTestDetailResponse;
     } catch (err) {
       console.error("Failed to fetch AB test", err);
+      return null;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTest();
+    let timer: number | undefined;
+    const tick = async (silent: boolean) => {
+      const row = await fetchTest(silent);
+      if (row && (row.status === "pending" || row.status === "running")) {
+        timer = window.setTimeout(() => tick(true), 3000);
+      }
+    };
+    tick(false);
+    return () => window.clearTimeout(timer);
   }, [id]);
 
   if (loading) {
@@ -66,7 +76,7 @@ export function ABTestDetailPage() {
             variant="outline"
             size="sm"
             className="gap-1"
-            onClick={fetchTest}
+            onClick={() => fetchTest()}
           >
             <RefreshCw className="h-4 w-4" />
             Refresh
@@ -110,6 +120,7 @@ export function ABTestDetailPage() {
                     <th className="pb-2 pr-4 font-medium">Mean Diff (A − B)</th>
                     <th className="pb-2 pr-4 font-medium">Std Dev</th>
                     <th className="pb-2 pr-4 font-medium">95% CI</th>
+                    <th className="pb-2 pr-4 font-medium">p-value</th>
                     <th className="pb-2 pr-4 font-medium">Significant?</th>
                     <th className="pb-2 font-medium">Winner</th>
                   </tr>
@@ -134,6 +145,9 @@ export function ABTestDetailPage() {
                       </td>
                       <td className="py-3 pr-4 font-mono text-muted-foreground">
                         [{stats.ci_95[0].toFixed(3)}, {stats.ci_95[1].toFixed(3)}]
+                      </td>
+                      <td className="py-3 pr-4 font-mono text-muted-foreground">
+                        {typeof stats.p_value === "number" ? stats.p_value.toFixed(4) : "—"}
                       </td>
                       <td className="py-3 pr-4">
                         {stats.significant ? (

@@ -29,6 +29,7 @@ const METRICS = [
   "answer_relevance",
   "context_precision",
   "context_recall",
+  "answer_correctness",
 ];
 
 export function TrendsPage() {

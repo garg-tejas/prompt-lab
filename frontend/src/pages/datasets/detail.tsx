@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Dataset } from "@/types/eval";
 import { ArrowLeft, Database } from "lucide-react";
@@ -11,13 +12,19 @@ export function DatasetDetailPage() {
   const navigate = useNavigate();
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [offset, setOffset] = useState(0);
+  const pageSize = 50;
 
-  const fetchDataset = async () => {
+  const fetchDataset = async (nextOffset = offset) => {
     if (!id) return;
     setLoading(true);
     try {
-      const res = await api.get(`/api/v1/datasets/${id}`);
+      const res = await api.get(`/api/v1/datasets/${id}`, {
+        params: { offset: nextOffset, limit: pageSize },
+      });
       setDataset(res.data);
+      setOffset(nextOffset);
     } catch (err) {
       console.error("Failed to fetch dataset", err);
     } finally {
@@ -26,7 +33,7 @@ export function DatasetDetailPage() {
   };
 
   useEffect(() => {
-    fetchDataset();
+    fetchDataset(0);
   }, [id]);
 
   if (loading) {
@@ -75,6 +82,12 @@ export function DatasetDetailPage() {
       <Card className="border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Preview</CardTitle>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter rows"
+            className="mt-2"
+          />
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -84,17 +97,23 @@ export function DatasetDetailPage() {
                   <th className="pb-2 pr-4 font-medium">#</th>
                   <th className="pb-2 pr-4 font-medium">Question</th>
                   <th className="pb-2 pr-4 font-medium">Context</th>
-                  <th className="pb-2 font-medium">Expected Answer</th>
+                  <th className="pb-2 pr-4 font-medium">Expected Answer</th>
+                  <th className="pb-2 font-medium">Extras</th>
                 </tr>
               </thead>
               <tbody>
-                {dataset.rows?.slice(0, 50).map((row, idx) => (
+                {dataset.rows
+                  ?.filter((row) => {
+                    const haystack = `${row.question} ${row.context} ${row.expected_answer ?? ""} ${JSON.stringify(row.extras ?? {})}`.toLowerCase();
+                    return haystack.includes(query.trim().toLowerCase());
+                  })
+                  .map((row, idx) => (
                   <tr
                     key={row.id}
                     className="border-b border-border/50 last:border-0"
                   >
                     <td className="py-2 pr-4 font-mono text-muted-foreground">
-                      {idx + 1}
+                      {offset + idx + 1}
                     </td>
                     <td className="py-2 pr-4 max-w-xs truncate">
                       {row.question}
@@ -102,19 +121,40 @@ export function DatasetDetailPage() {
                     <td className="py-2 pr-4 max-w-xs truncate">
                       {row.context}
                     </td>
-                    <td className="py-2 max-w-xs truncate">
+                    <td className="py-2 pr-4 max-w-xs truncate">
                       {row.expected_answer || "—"}
+                    </td>
+                    <td className="py-2 max-w-xs truncate font-mono text-xs text-muted-foreground">
+                      {row.extras && Object.keys(row.extras).length
+                        ? Object.entries(row.extras).map(([key, value]) => `${key}=${value}`).join(", ")
+                        : "—"}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {(dataset.rows?.length || 0) > 50 && (
-            <div className="mt-2 text-xs text-muted-foreground">
-              Showing first 50 of {dataset.row_count} rows.
-            </div>
-          )}
+          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {offset + 1}–{Math.min(offset + pageSize, dataset.row_count)} of {dataset.row_count}
+            </span>
+            <span className="flex gap-3">
+              <button
+                type="button"
+                disabled={offset === 0}
+                onClick={() => fetchDataset(Math.max(0, offset - pageSize))}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={offset + pageSize >= dataset.row_count}
+                onClick={() => fetchDataset(offset + pageSize)}
+              >
+                Next
+              </button>
+            </span>
+          </div>
         </CardContent>
       </Card>
     </div>

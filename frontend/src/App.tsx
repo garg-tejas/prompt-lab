@@ -19,6 +19,8 @@ import { ModelListPage } from "@/pages/models/list";
 import { ModelCreatePage } from "@/pages/models/create";
 import { TrendsPage } from "@/pages/analytics/trends";
 import { RunComparisonPage } from "@/pages/analytics/compare";
+import { ConnectPage } from "@/pages/connect";
+import { NoticeHost } from "@/components/notice";
 import { SignInPage } from "@/pages/sign-in";
 import { SignUpPage } from "@/pages/sign-up";
 
@@ -46,6 +48,7 @@ function App() {
           </div>
         }
       >
+        <NoticeHost />
         <Routes>
           <Route path="/sign-in/*" element={<SignInPage />} />
           <Route path="/sign-up/*" element={<SignUpPage />} />
@@ -66,6 +69,7 @@ function App() {
             <Route path="models/new" element={<ModelCreatePage />} />
             <Route path="trends/:promptId" element={<TrendsPage />} />
             <Route path="compare" element={<RunComparisonPage />} />
+            <Route path="connect" element={<ConnectPage />} />
           </Route>
         </Routes>
       </Suspense>

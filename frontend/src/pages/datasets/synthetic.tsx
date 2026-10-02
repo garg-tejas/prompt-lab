@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,7 +29,7 @@ export function DatasetSyntheticPage() {
       navigate("/datasets");
     } catch (err) {
       console.error("Failed to generate dataset", err);
-      alert("Failed to generate synthetic dataset");
+      notify("Failed to generate synthetic dataset");
     } finally {
       setSubmitting(false);
     }

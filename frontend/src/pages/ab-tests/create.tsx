@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +34,7 @@ export function ABTestCreatePage() {
       navigate(`/ab-tests/${res.data.id}`);
     } catch (err) {
       console.error("Failed to create AB test", err);
-      alert("Failed to create A/B test");
+      notify("Failed to create A/B test");
     } finally {
       setSubmitting(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, GitCompare } from "lucide-react";
@@ -34,7 +35,7 @@ export function RunComparisonPage() {
       setComparison(res.data);
     } catch (err) {
       console.error("Failed to compare runs", err);
-      alert("Failed to compare runs");
+      notify("Failed to compare runs");
     } finally {
       setLoading(false);
     }

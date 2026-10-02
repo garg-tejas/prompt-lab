@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,7 @@ export function ModelCreatePage() {
       navigate("/models");
     } catch (err) {
       console.error("Failed to create model", err);
-      alert("Failed to create model endpoint");
+      notify("Failed to create model endpoint");
     } finally {
       setSubmitting(false);
     }

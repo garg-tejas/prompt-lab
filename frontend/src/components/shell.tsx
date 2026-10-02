@@ -49,6 +49,12 @@ export function Shell() {
               >
                 A/B Tests
               </Link>
+              <Link
+                to="/connect"
+                className="transition-colors hover:text-primary text-muted-foreground"
+              >
+                Connect
+              </Link>
             </nav>
           )}
 

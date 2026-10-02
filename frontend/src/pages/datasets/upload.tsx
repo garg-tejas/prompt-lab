@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +32,7 @@ export function DatasetUploadPage() {
       navigate("/datasets");
     } catch (err) {
       console.error("Failed to upload dataset", err);
-      alert("Failed to upload dataset");
+      notify("Failed to upload dataset");
     } finally {
       setSubmitting(false);
     }

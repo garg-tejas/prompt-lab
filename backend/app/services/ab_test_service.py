@@ -1,8 +1,6 @@
-import uuid
-import math
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
+from app.core.time import utcnow
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,43 +11,7 @@ from app.models.eval import EvalRun, EvalResult, MetricScore
 from app.models.user import User
 
 
-def _paired_stats(diffs: List[float]) -> dict:
-    """Compute paired t-test statistics without scipy."""
-    n = len(diffs)
-    if n < 2:
-        return {"mean_diff": 0.0, "std_dev": 0.0, "std_error": 0.0, "significant": False, "winner": "tie"}
-
-    mean_diff = sum(diffs) / n
-    variance = sum((d - mean_diff) ** 2 for d in diffs) / (n - 1)
-    std_dev = variance ** 0.5
-    std_error = std_dev / (n ** 0.5)
-
-    if std_error == 0:
-        significant = True
-    else:
-        t_stat = mean_diff / std_error
-        # Rough threshold: |t| > 2.0 ≈ 95% confidence for n > 20
-        # For smaller n, use slightly higher threshold
-        threshold = 2.0 if n >= 20 else 2.2
-        significant = abs(t_stat) > threshold
-
-    if significant:
-        winner = "a" if mean_diff > 0 else "b"
-    else:
-        winner = "tie"
-
-    ci_lower = mean_diff - 1.96 * std_error
-    ci_upper = mean_diff + 1.96 * std_error
-
-    return {
-        "mean_diff": round(mean_diff, 4),
-        "std_dev": round(std_dev, 4),
-        "std_error": round(std_error, 4),
-        "n": n,
-        "significant": significant,
-        "winner": winner,
-        "ci_95": [round(ci_lower, 4), round(ci_upper, 4)],
-    }
+from app.core.stats import paired_stats as _paired_stats
 
 
 async def create_ab_test(
@@ -181,7 +143,7 @@ async def compute_ab_test(db: AsyncSession, ab_test_id: UUID) -> ABTest:
             "total_samples": len(common_rows),
         }
         ab.per_sample_breakdown = per_sample
-        ab.completed_at = datetime.utcnow()
+        ab.completed_at = utcnow()
         await db.commit()
 
     except Exception as exc:

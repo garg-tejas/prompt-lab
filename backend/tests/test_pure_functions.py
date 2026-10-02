@@ -1,8 +1,18 @@
 """Unit tests for pure helper functions in services."""
 import pytest
 
+from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.stats import student_t_two_tailed_p
 from app.services.ab_test_service import _paired_stats
-from app.services.prompt_service import compute_diff
+from app.services.metrics import (
+    parse_verdict_payload,
+    regression_drops,
+    score_from_verdicts,
+    split_context_chunks,
+)
+from app.services.eval_service import fill_template, metrics_for_row
+from app.services.file_parser import parse_csv_file
+from app.services.prompt_service import compute_diff, extract_variables, version_text
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +121,86 @@ class TestComputeDiff:
         assert "-d" in diff
         assert "+D" in diff
         assert "+e" in diff
+
+
+class TestPairedPValue:
+    def test_critical_value_near_five_percent(self):
+        """df=10 two-sided 5% critical value is about 2.228."""
+        p = student_t_two_tailed_p(2.228, 10)
+        assert p == pytest.approx(0.05, abs=0.004)
+
+    def test_clear_winner_reports_p_value(self):
+        diffs = [0.8, 0.9, 0.7, 0.85, 0.75, 0.95, 0.8, 0.9, 0.85, 0.8]
+        result = _paired_stats(diffs)
+        assert result["p_value"] < 0.05
+        assert result["ci_95"][0] > 0
+
+
+class TestVerdictScoring:
+    def test_empty_verdicts_are_not_a_zero(self):
+        assert score_from_verdicts([]) is None
+
+    def test_half_the_claims_pass(self):
+        assert score_from_verdicts([True, False]) == 0.5
+
+    def test_chunks_split_on_blank_lines(self):
+        assert split_context_chunks("one\n\ntwo") == ["one", "two"]
+
+    def test_parse_counts_passes(self):
+        payload = '{"verdicts":[{"statement":"a","pass":true},{"statement":"b","pass":false}],"explanation":"ok"}'
+        parsed = parse_verdict_payload(payload)
+        assert parsed["score"] == 0.5
+        assert parsed["explanation"].startswith("1/2")
+
+    def test_regression_uses_the_baseline_average(self):
+        current = {"faithfulness": {"mean": 0.4}}
+        history = [
+            {"faithfulness": {"mean": 0.8}},
+            {"faithfulness": {"mean": 0.6}},
+        ]
+        drops = regression_drops(current, history, 0.1)
+        assert drops[0]["previous"] == 0.7
+        assert drops[0]["drop"] == 0.3
+
+
+class TestTemplateAndMetrics:
+    def test_fill_template_uses_every_key(self):
+        text = fill_template("{{question}} / {{domain}}", {"question": "Q", "domain": "law"})
+        assert text == "Q / law"
+
+    def test_ground_truth_metrics_need_an_answer(self):
+        assert "answer_correctness" not in metrics_for_row(None)
+        assert "context_recall" in metrics_for_row("Paris")
+
+    def test_csv_keeps_extra_columns(self):
+        raw = b"question,context,expected_answer,domain\nWhat?,Some text,Paris,geo\n"
+        rows = parse_csv_file(raw)
+        assert rows[0]["extras"]["domain"] == "geo"
+        assert "question" not in rows[0]["extras"]
+
+    def test_variables_include_system_prompt(self):
+        names = extract_variables("Hello {{name}}", "You know {{city}}")
+        assert names == ["name", "city"]
+
+    def test_version_text_includes_system_and_messages(self):
+        version = type(
+            "Version",
+            (),
+            {
+                "system_content": "Be brief",
+                "messages": [{"role": "user", "content": "Example"}],
+                "content": "Answer {{question}}",
+            },
+        )()
+        text = version_text(version)
+        assert "Be brief" in text
+        assert "Example" in text
+        assert "Answer {{question}}" in text
+
+
+class TestSecrets:
+    def test_round_trip(self):
+        stored = encrypt_secret("sk-test")
+        assert stored.startswith("enc:v1:")
+        assert decrypt_secret(stored) == "sk-test"
+        assert decrypt_secret("legacy-plain") == "legacy-plain"

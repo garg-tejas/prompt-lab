@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -57,7 +58,7 @@ export function PromptDetailPage() {
       fetchPrompt();
     } catch (err) {
       console.error("Failed to promote version", err);
-      alert("Failed to promote version");
+      notify("Failed to promote version");
     }
   };
 
@@ -75,7 +76,7 @@ export function PromptDetailPage() {
       setDiffResult(res.data.diff);
     } catch (err) {
       console.error("Failed to compute diff", err);
-      alert("Failed to compute diff");
+      notify("Failed to compute diff");
     } finally {
       setDiffLoading(false);
     }
@@ -122,6 +123,11 @@ export function PromptDetailPage() {
         </div>
         {prompt.description && (
           <p className="text-muted-foreground">{prompt.description}</p>
+        )}
+        {prompt.production_version && (
+          <p className="pt-2 text-xs text-muted-foreground font-mono">
+            Badge: /api/v1/badges/{prompt.id}.svg?metric=answer_correctness
+          </p>
         )}
         <div className="flex items-center gap-2 pt-1">
           {prompt.tags.map((tag) => (
@@ -335,6 +341,12 @@ function VersionRow({
         </div>
       )}
 
+      {showContent && version.system_content && (
+        <pre className="mt-3 rounded-md border border-border bg-background p-3 text-xs font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
+          {version.system_content}
+        </pre>
+      )}
+
       {showContent && (
         <div className="mt-3 relative">
           <button
@@ -364,6 +376,7 @@ function NewVersionForm({
   onSuccess: () => void;
 }) {
   const [content, setContent] = useState("");
+  const [systemContent, setSystemContent] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -373,12 +386,13 @@ function NewVersionForm({
     try {
       await api.post(`/api/v1/prompts/${promptId}/versions`, {
         content,
+        system_content: systemContent || null,
         commit_message: commitMessage,
       });
       onSuccess();
     } catch (err) {
       console.error("Failed to create version", err);
-      alert("Failed to create version");
+      notify("Failed to create version");
     } finally {
       setSubmitting(false);
     }
@@ -387,7 +401,17 @@ function NewVersionForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3 border-b border-border pb-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">New Content</label>
+        <label className="text-sm font-medium">System prompt</label>
+        <Textarea
+          value={systemContent}
+          onChange={(e) => setSystemContent(e.target.value)}
+          placeholder="Optional system turn"
+          rows={3}
+          className="font-mono text-sm"
+        />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">User prompt</label>
         <Textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}

@@ -9,6 +9,8 @@ export interface PromptVersion {
   version_hash: string;
   commit_message: string;
   content: string;
+  system_content: string | null;
+  messages: { role: string; content: string }[] | null;
   variables: string[];
   tag: string | null;
   created_at: string;

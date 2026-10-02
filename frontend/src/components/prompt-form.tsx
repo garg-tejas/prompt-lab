@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { notify } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,23 +24,39 @@ export function PromptForm({
 }: PromptFormProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const [messagesText, setMessagesText] = useState("[]");
+  const [systemContent, setSystemContent] = useState("");
   const [content, setContent] = useState(initialContent);
   const [commitMessage, setCommitMessage] = useState("");
   const [tags, setTags] = useState(initialTags);
   const [submitting, setSubmitting] = useState(false);
 
   const variables = Array.from(
-    new Set((content.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g) || []))
+    new Set(
+      `${systemContent}\n${messagesText}\n${content}`.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g) || []
+    )
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    let messages: { role: string; content: string }[] = [];
+    try {
+      const parsed = JSON.parse(messagesText || "[]");
+      if (!Array.isArray(parsed)) throw new Error("messages must be a list");
+      messages = parsed;
+    } catch {
+      notify("Few-shot messages must be a JSON list of {role, content}.");
+      setSubmitting(false);
+      return;
+    }
     try {
       await api.post("/api/v1/prompts", {
         name,
         description: description || null,
         content,
+        system_content: systemContent || null,
+        messages,
         commit_message: commitMessage || "Initial version",
         tags: tags
           .split(",")
@@ -49,7 +66,7 @@ export function PromptForm({
       onSuccess();
     } catch (err) {
       console.error("Failed to create prompt", err);
-      alert("Failed to create prompt");
+      notify("Failed to create prompt");
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +104,29 @@ export function PromptForm({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Prompt Content</label>
+        <label className="text-sm font-medium">System prompt</label>
+        <Textarea
+          value={systemContent}
+          onChange={(e) => setSystemContent(e.target.value)}
+          placeholder="Optional. Instructions that stay separate from the user turn. {{variable}} works here too."
+          rows={4}
+          className="font-mono text-sm"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Few-shot turns</label>
+        <Textarea
+          value={messagesText}
+          onChange={(e) => setMessagesText(e.target.value)}
+          placeholder='[{"role":"user","content":"Example"},{"role":"assistant","content":"Reply"}]'
+          rows={3}
+          className="font-mono text-sm"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">User prompt</label>
         <Textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}

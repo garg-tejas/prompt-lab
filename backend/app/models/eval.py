@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
 from typing import List
+from app.core.time import utcnow
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Float, JSON, Integer
+from sqlalchemy import String, Text, DateTime, ForeignKey, Float, JSON, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +12,9 @@ from app.database import Base
 
 class EvalRun(Base):
     __tablename__ = "eval_runs"
+    __table_args__ = (
+        Index("ix_eval_runs_lookup", "prompt_id", "dataset_id", "model_id", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -23,8 +27,8 @@ class EvalRun(Base):
     config: Mapped[dict] = mapped_column(JSON, default=dict)
     results_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     results: Mapped[List["EvalResult"]] = relationship(
         "EvalResult", back_populates="eval_run", cascade="all, delete-orphan"
@@ -42,7 +46,7 @@ class EvalResult(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     estimated_cost: Mapped[float] = mapped_column(Float, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     eval_run: Mapped[EvalRun] = relationship(EvalRun, back_populates="results")
     scores: Mapped[List["MetricScore"]] = relationship(
@@ -56,9 +60,11 @@ class MetricScore(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     eval_result_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("eval_results.id"), nullable=False)
     metric_name: Mapped[str] = mapped_column(String, nullable=False)
-    score: Mapped[float] = mapped_column(Float, nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    human_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    human_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     judge_model_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("model_endpoints.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     eval_result: Mapped[EvalResult] = relationship(EvalResult, back_populates="scores")

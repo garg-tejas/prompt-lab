@@ -1,25 +1,63 @@
 import asyncio
-import json
 import random
 import time
-from datetime import datetime
 from typing import List
 from uuid import UUID
+from app.core.time import utcnow
 
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.core.crypto import decrypt_secret
 from app.database import AsyncSessionLocal
-from app.models.eval import EvalRun, EvalResult, MetricScore
-from app.models.prompt import PromptVersion
 from app.models.dataset import Dataset, DatasetRow
+from app.models.eval import EvalRun, EvalResult, MetricScore
 from app.models.model import ModelEndpoint
+from app.models.prompt import PromptVersion
+from app.services.metrics import (
+    effective_score,
+    parse_verdict_payload,
+    regression_drops,
+    split_context_chunks,
+)
 
+
+class EvalCancelled(Exception):
+    pass
+
+
+JUDGE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "judgment",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "verdicts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "statement": {"type": "string"},
+                            "pass": {"type": "boolean"},
+                        },
+                        "required": ["statement", "pass"],
+                    },
+                },
+                "explanation": {"type": "string"},
+            },
+            "required": ["verdicts", "explanation"],
+        },
+    },
+}
 
 JUDGE_PROMPTS = {
-    "faithfulness": """You are an expert evaluator. Given a context and an answer, determine if the answer is fully supported by the context. A score of 1.0 means the answer contains no hallucinated information. A score of 0.0 means the answer is entirely unsupported.
+    "faithfulness": """Break the answer into atomic claims. For each claim, pass is true only when the context supports it. Do not give a holistic score.
 
 Context:
 {context}
@@ -27,10 +65,8 @@ Context:
 Answer:
 {answer}
 
-Return a JSON object with:
-- "score": float between 0.0 and 1.0
-- "explanation": brief reasoning""",
-    "answer_relevance": """You are an expert evaluator. Given a question and an answer, determine how well the answer addresses the question. A score of 1.0 means the answer is perfectly relevant and complete. A score of 0.0 means the answer is completely irrelevant.
+Return JSON with "verdicts" (statement, pass) and "explanation".""",
+    "answer_relevance": """List what the question asks for. For each part, pass is true only when the answer addresses it.
 
 Question:
 {question}
@@ -38,10 +74,17 @@ Question:
 Answer:
 {answer}
 
-Return a JSON object with:
-- "score": float between 0.0 and 1.0
-- "explanation": brief reasoning""",
-    "context_precision": """You are an expert evaluator. Given a context and a question, determine what fraction of the provided context was actually useful for answering the question. A score of 1.0 means every piece of context was useful. A score of 0.0 means none was useful.
+Return JSON with "verdicts" (statement, pass) and "explanation".""",
+    "context_precision": """Each block below is one retrieved chunk. Return one verdict per block, in order. pass is true only when that chunk helps answer the question.
+
+Question:
+{question}
+
+Chunks:
+{chunks}
+
+Return JSON with "verdicts" (statement, pass) and "explanation".""",
+    "context_recall": """Break the ground-truth answer into facts. For each fact, pass is true only when the context contains it.
 
 Context:
 {context}
@@ -49,40 +92,96 @@ Context:
 Question:
 {question}
 
-Return a JSON object with:
-- "score": float between 0.0 and 1.0
-- "explanation": brief reasoning""",
-    "context_recall": """You are an expert evaluator. Given a context and a question, determine if the context contained all the information needed to answer the question. A score of 1.0 means the context was sufficient. A score of 0.0 means critical information was missing.
+Ground-truth answer:
+{expected_answer}
 
-Context:
-{context}
+Return JSON with "verdicts" (statement, pass) and "explanation".""",
+    "answer_correctness": """Break the ground-truth answer into facts. For each fact, pass is true only when the model answer states it without contradiction.
 
 Question:
 {question}
 
-Return a JSON object with:
-- "score": float between 0.0 and 1.0
-- "explanation": brief reasoning""",
+Model answer:
+{answer}
+
+Ground-truth answer:
+{expected_answer}
+
+Return JSON with "verdicts" (statement, pass) and "explanation".""",
 }
 
 
 def fill_template(template: str, variables: dict) -> str:
     result = template
     for key, value in variables.items():
-        result = result.replace(f"{{{{{key}}}}}", str(value))
+        result = result.replace(f"{{{{{key}}}}}", "" if value is None else str(value))
     return result
 
 
-async def call_llm(
-    model: ModelEndpoint, messages: List[dict], temperature: float = 0.0
-) -> tuple:
-    client = AsyncOpenAI(base_url=model.base_url, api_key=model.api_key)
-    start = time.time()
-    response = await client.chat.completions.create(
-        model=model.model_name,
-        messages=messages,  # type: ignore[arg-type]
-        temperature=temperature,
+def row_variables(row: DatasetRow) -> dict:
+    data = {
+        "question": row.question,
+        "context": row.context,
+        "expected_answer": row.expected_answer or "",
+    }
+    extras = row.extras or {}
+    if isinstance(extras, dict):
+        for key, value in extras.items():
+            data[str(key)] = "" if value is None else str(value)
+    return data
+
+
+def build_messages(prompt_version: PromptVersion, variables: dict) -> List[dict]:
+    messages = []
+    if prompt_version.system_content:
+        messages.append(
+            {
+                "role": "system",
+                "content": fill_template(prompt_version.system_content, variables),
+            }
+        )
+    for turn in prompt_version.messages or []:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role") or "user"
+        content = turn.get("content") or ""
+        messages.append({"role": role, "content": fill_template(str(content), variables)})
+    messages.append(
+        {"role": "user", "content": fill_template(prompt_version.content, variables)}
     )
+    return messages
+
+
+def _parse_judgment(content: str) -> dict:
+    return parse_verdict_payload(content)
+
+
+async def call_llm(
+    model: ModelEndpoint,
+    messages: List[dict],
+    temperature: float = 0.0,
+    response_format: dict | None = None,
+) -> tuple:
+    client = AsyncOpenAI(base_url=model.base_url, api_key=decrypt_secret(model.api_key))
+    kwargs = {}
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+    start = time.time()
+    try:
+        response = await client.chat.completions.create(
+            model=model.model_name,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=temperature,
+            **kwargs,
+        )
+    except Exception:
+        if response_format is None:
+            raise
+        response = await client.chat.completions.create(
+            model=model.model_name,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=temperature,
+        )
     latency_ms = (time.time() - start) * 1000
     return response, latency_ms
 
@@ -92,56 +191,123 @@ async def judge_metric(
     question: str,
     context: str,
     answer: str,
+    expected_answer: str,
     judge_model: ModelEndpoint,
     retries: int = 2,
 ) -> dict:
+    chunks = "\n".join(
+        f"[{index}] {chunk}" for index, chunk in enumerate(split_context_chunks(context), start=1)
+    )
     prompt = JUDGE_PROMPTS[metric_name].format(
-        question=question, context=context, answer=answer
+        question=question,
+        context=context,
+        chunks=chunks or context,
+        answer=answer,
+        expected_answer=expected_answer,
     )
     messages = [{"role": "user", "content": prompt}]
 
     for attempt in range(retries + 1):
         try:
-            response, _ = await call_llm(judge_model, messages)
+            response, _ = await call_llm(
+                judge_model, messages, response_format=JUDGE_SCHEMA
+            )
             content = response.choices[0].message.content or "{}"
-            # Try to extract JSON
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError:
-                # Try finding JSON block
-                start = content.find("{")
-                end = content.rfind("}")
-                if start != -1 and end != -1:
-                    data = json.loads(content[start : end + 1])
-                else:
-                    raise
-            return {
-                "score": float(data.get("score", 0)),
-                "explanation": data.get("explanation", ""),
-            }
+            parsed = _parse_judgment(content)
+            usage = response.usage
+            parsed["input_tokens"] = usage.prompt_tokens if usage else 0
+            parsed["output_tokens"] = usage.completion_tokens if usage else 0
+            return parsed
         except Exception:
             if attempt == retries:
-                return {"score": 0.0, "explanation": f"Failed to evaluate {metric_name}"}
+                return {
+                    "score": None,
+                    "explanation": f"Failed to evaluate {metric_name}",
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                }
             await asyncio.sleep(1 * (2**attempt))
-    return {"score": 0.0, "explanation": "Unknown error"}
+    return {"score": None, "explanation": "Unknown error", "input_tokens": 0, "output_tokens": 0}
+
+
+def metrics_for_row(expected_answer: str | None) -> List[str]:
+    names = ["faithfulness", "answer_relevance", "context_precision"]
+    if expected_answer:
+        names.extend(["context_recall", "answer_correctness"])
+    return names
+
+
+async def _is_cancelled(eval_run_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        run = await session.get(EvalRun, eval_run_id)
+        return run is None or run.status == "cancelled"
+
+
+def _summarize(scores_by_metric: dict, total: int, failed: int, completed: int) -> dict:
+    metrics = {}
+    judge_errors = 0
+    for metric_name, scores in scores_by_metric.items():
+        numeric = [score for score in scores if score is not None]
+        judge_errors += len(scores) - len(numeric)
+        if numeric:
+            metrics[metric_name] = {
+                "mean": round(sum(numeric) / len(numeric), 4),
+                "min": round(min(numeric), 4),
+                "max": round(max(numeric), 4),
+                "n": len(numeric),
+                "errors": len(scores) - len(numeric),
+            }
+    return {
+        "total_samples": total,
+        "failed_rows": failed,
+        "judge_errors": judge_errors,
+        "progress": {"completed": completed, "total": total, "failed": failed},
+        "metrics": metrics,
+    }
+
+
+async def _detect_anomaly(db: AsyncSession, eval_run: EvalRun, summary: dict) -> dict | None:
+    threshold = float((eval_run.config or {}).get("anomaly_drop", 0.1))
+    result = await db.execute(
+        select(EvalRun)
+        .where(EvalRun.prompt_id == eval_run.prompt_id)
+        .where(EvalRun.dataset_id == eval_run.dataset_id)
+        .where(EvalRun.model_id == eval_run.model_id)
+        .where(EvalRun.status == "completed")
+        .where(EvalRun.id != eval_run.id)
+        .order_by(EvalRun.completed_at.desc())
+        .limit(5)
+    )
+    previous_runs = list(result.scalars().all())
+    history = [
+        (run.results_summary or {}).get("metrics") or {}
+        for run in previous_runs
+        if run.results_summary
+    ]
+    drops = regression_drops(summary["metrics"], history, threshold)
+    if not drops:
+        return None
+    return {
+        "previous_run_id": str(previous_runs[0].id),
+        "baseline_runs": len(history),
+        "threshold": threshold,
+        "drops": drops,
+    }
 
 
 async def run_eval_pipeline(eval_run_id: str) -> None:
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(EvalRun)
-            .options(selectinload(EvalRun.results))
-            .where(EvalRun.id == eval_run_id)
-        )
+        result = await db.execute(select(EvalRun).where(EvalRun.id == eval_run_id))
         eval_run = result.scalar_one_or_none()
         if not eval_run:
             raise ValueError("Eval run not found")
+        if eval_run.status == "cancelled":
+            return
 
         eval_run.status = "running"
         await db.commit()
 
         try:
-            # Load dependencies
             pv_result = await db.execute(
                 select(PromptVersion).where(PromptVersion.id == eval_run.prompt_version_id)
             )
@@ -164,37 +330,45 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
             )
             judge_model = judge_result.scalar_one()
 
-            rows = dataset.rows
-            sample_size = eval_run.config.get("sample_size")
+            done_result = await db.execute(
+                select(EvalResult.dataset_row_id).where(EvalResult.eval_run_id == eval_run.id)
+            )
+            done_ids = set(done_result.scalars().all())
+
+            rows = list(dataset.rows)
+            sample_size = (eval_run.config or {}).get("sample_size")
             if sample_size and 0 < sample_size < len(rows):
-                rows = random.sample(rows, sample_size)
+                rows = random.Random(str(eval_run.id)).sample(rows, sample_size)
 
-            batch_size: int = eval_run.config.get("concurrency") or 5
-            retry_count: int = eval_run.config.get("retry_count", 2)
+            total = len(rows)
+            pending = [row for row in rows if row.id not in done_ids]
+            completed = total - len(pending)
+            failed = 0
+            batch_size: int = (eval_run.config or {}).get("concurrency") or 5
+            retry_count: int = (eval_run.config or {}).get("retry_count", 2)
+            scores_by_metric: dict = {}
 
-            results_summary = {
-                "total_samples": len(rows),
-                "metrics": {},
-                "failed_rows": 0,
-            }
+            # Fold scores already stored so a retry still summarizes the whole run.
+            if done_ids:
+                existing = await db.execute(
+                    select(MetricScore)
+                    .join(EvalResult)
+                    .where(EvalResult.eval_run_id == eval_run.id)
+                )
+                for score in existing.scalars().all():
+                    value = effective_score(score.score, score.human_score)
+                    scores_by_metric.setdefault(score.metric_name, []).append(value)
 
             async def process_row(row: DatasetRow) -> dict:
-                """Run target model + all judge metrics for a single row.
-                Returns a dict of metric_name -> judgment so the caller can
-                accumulate scores without any shared mutable state."""
-                filled_prompt = fill_template(
-                    prompt_version.content,
-                    {"question": row.question, "context": row.context},
-                )
-
+                if await _is_cancelled(str(eval_run.id)):
+                    raise EvalCancelled()
+                variables = row_variables(row)
                 response, latency_ms = await call_llm(
-                    target_model,
-                    [{"role": "user", "content": filled_prompt}],
+                    target_model, build_messages(prompt_version, variables)
                 )
                 output = response.choices[0].message.content or ""
                 input_tokens = response.usage.prompt_tokens if response.usage else 0
                 output_tokens = response.usage.completion_tokens if response.usage else 0
-
                 cost = 0.0
                 if target_model.cost_per_1k_input and target_model.cost_per_1k_output:
                     cost = (
@@ -202,15 +376,27 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                         + output_tokens / 1000 * target_model.cost_per_1k_output
                     )
 
-                # Run all 4 judge calls concurrently for this row
-                metric_names = ["faithfulness", "answer_relevance", "context_precision", "context_recall"]
+                metric_names = metrics_for_row(row.expected_answer)
                 judgments = await asyncio.gather(
                     *[
-                        judge_metric(m, row.question, row.context, output, judge_model, retries=retry_count)
-                        for m in metric_names
+                        judge_metric(
+                            name,
+                            row.question,
+                            row.context,
+                            output,
+                            row.expected_answer or "",
+                            judge_model,
+                            retries=retry_count,
+                        )
+                        for name in metric_names
                     ]
                 )
-
+                if judge_model.cost_per_1k_input and judge_model.cost_per_1k_output:
+                    for judgment in judgments:
+                        cost += (
+                            (judgment.get("input_tokens") or 0) / 1000 * judge_model.cost_per_1k_input
+                            + (judgment.get("output_tokens") or 0) / 1000 * judge_model.cost_per_1k_output
+                        )
                 return {
                     "row": row,
                     "output": output,
@@ -221,20 +407,20 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                     "judgments": dict(zip(metric_names, judgments)),
                 }
 
-            # Process rows in batches of `batch_size` to respect rate limits
-            for batch_start in range(0, len(rows), batch_size):
-                batch = rows[batch_start : batch_start + batch_size]
-
+            for batch_start in range(0, len(pending), batch_size):
+                if await _is_cancelled(str(eval_run.id)):
+                    raise EvalCancelled()
+                batch = pending[batch_start : batch_start + batch_size]
                 batch_results = await asyncio.gather(
                     *[process_row(row) for row in batch],
                     return_exceptions=True,
                 )
-
                 for item in batch_results:
+                    if isinstance(item, EvalCancelled):
+                        raise EvalCancelled()
                     if isinstance(item, Exception):
-                        results_summary["failed_rows"] += 1
+                        failed += 1
                         continue
-
                     row = item["row"]
                     eval_result = EvalResult(
                         eval_run_id=eval_run.id,
@@ -247,39 +433,64 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                     )
                     db.add(eval_result)
                     await db.flush()
-
                     for metric_name, judgment in item["judgments"].items():
-                        score = MetricScore(
-                            eval_result_id=eval_result.id,
-                            metric_name=metric_name,
-                            score=judgment["score"],
-                            explanation=judgment["explanation"],
-                            judge_model_id=judge_model.id,
+                        db.add(
+                            MetricScore(
+                                eval_result_id=eval_result.id,
+                                metric_name=metric_name,
+                                score=judgment["score"],
+                                explanation=judgment["explanation"],
+                                judge_model_id=judge_model.id,
+                            )
                         )
-                        db.add(score)
-                        results_summary["metrics"].setdefault(metric_name, []).append(judgment["score"])
+                        scores_by_metric.setdefault(metric_name, []).append(judgment["score"])
+                    completed += 1
 
-                # Commit after each batch so partial progress is saved
+                eval_run.results_summary = _summarize(scores_by_metric, total, failed, completed)
                 await db.commit()
 
-            # Compute summary stats
-            for metric_name, scores in results_summary["metrics"].items():
-                if scores:
-                    results_summary["metrics"][metric_name] = {
-                        "mean": round(sum(scores) / len(scores), 4),
-                        "min": round(min(scores), 4),
-                        "max": round(max(scores), 4),
-                    }
-
+            if await _is_cancelled(str(eval_run.id)):
+                raise EvalCancelled()
+            summary = _summarize(scores_by_metric, total, failed, completed)
+            anomaly = await _detect_anomaly(db, eval_run, summary)
+            if anomaly:
+                summary["anomaly"] = anomaly
             eval_run.status = "completed"
-            eval_run.results_summary = results_summary
-            eval_run.completed_at = datetime.utcnow()
+            eval_run.results_summary = summary
+            eval_run.completed_at = utcnow()
             await db.commit()
 
+            from app.services.webhook_service import dispatch_event
+
+            payload = {
+                "eval_run_id": str(eval_run.id),
+                "name": eval_run.name,
+                "status": eval_run.status,
+                "results_summary": summary,
+            }
+            await dispatch_event(db, eval_run.created_by, "eval.completed", payload)
+            if anomaly:
+                await dispatch_event(db, eval_run.created_by, "eval.anomaly", payload)
+
+        except EvalCancelled:
+            eval_run.status = "cancelled"
+            await db.commit()
+            return
         except Exception as exc:
             eval_run.status = "failed"
-            eval_run.results_summary = {"error": str(exc)}
+            eval_run.results_summary = {
+                **(eval_run.results_summary or {}),
+                "error": str(exc),
+            }
             await db.commit()
+            from app.services.webhook_service import dispatch_event
+
+            await dispatch_event(
+                db,
+                eval_run.created_by,
+                "eval.failed",
+                {"eval_run_id": str(eval_run.id), "name": eval_run.name, "error": str(exc)},
+            )
             raise
 
 
@@ -316,3 +527,12 @@ async def list_eval_runs(db: AsyncSession, owner) -> List[EvalRun]:
         .order_by(EvalRun.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def cancel_eval_run(db: AsyncSession, eval_run: EvalRun) -> EvalRun:
+    if eval_run.status in ("completed", "failed", "cancelled"):
+        return eval_run
+    eval_run.status = "cancelled"
+    await db.commit()
+    await db.refresh(eval_run)
+    return eval_run

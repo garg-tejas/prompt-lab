@@ -10,6 +10,7 @@ class DatasetRowBase(BaseModel):
     question: str
     context: str
     expected_answer: Optional[str] = None
+    extras: dict = {}
 
 
 class DatasetRowResponse(DatasetRowBase):
@@ -110,7 +111,9 @@ class EvalRunListResponse(BaseModel):
 class MetricScoreResponse(BaseModel):
     id: UUID
     metric_name: str
-    score: float
+    score: Optional[float] = None
+    human_score: Optional[float] = None
+    human_note: Optional[str] = None
     explanation: Optional[str] = None
     judge_model_id: UUID
     created_at: datetime

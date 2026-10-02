@@ -5,12 +5,17 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.services import eval_service
+from app.services.metrics import effective_score
+from app.models.eval import EvalResult, MetricScore
 from app.schemas.eval import EvalRunCreate, EvalRunResponse, EvalRunDetailResponse
 from app.tasks.eval_tasks import execute_eval_run
 
@@ -26,6 +31,68 @@ async def create_eval_run(
     eval_run = await eval_service.create_eval_run(db, data, user)
     execute_eval_run.delay(str(eval_run.id))
     return EvalRunResponse.model_validate(eval_run)
+
+
+@router.post("/{eval_run_id}/cancel", response_model=EvalRunResponse)
+async def cancel_eval_run(
+    eval_run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    run = await eval_service.get_eval_run(db, eval_run_id)
+    if not run or run.created_by != user.id:
+        raise HTTPException(status_code=404, detail="Eval run not found")
+    run = await eval_service.cancel_eval_run(db, run)
+    return EvalRunResponse.model_validate(run)
+
+
+class HumanReviewBody(BaseModel):
+    score: float = Field(ge=0, le=1)
+    note: str | None = None
+
+
+@router.post("/scores/{score_id}/review", response_model=dict)
+async def review_score(
+    score_id: UUID,
+    body: HumanReviewBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    score = await db.get(MetricScore, score_id)
+    if not score:
+        raise HTTPException(status_code=404, detail="Score not found")
+    loaded = await db.execute(
+        select(MetricScore)
+        .options(selectinload(MetricScore.eval_result).selectinload(EvalResult.eval_run))
+        .where(MetricScore.id == score_id)
+    )
+    score = loaded.scalar_one_or_none()
+    if not score or score.eval_result.eval_run.created_by != user.id:
+        raise HTTPException(status_code=404, detail="Score not found")
+    score.human_score = body.score
+    score.human_note = body.note
+    run = score.eval_result.eval_run
+    stored = await db.execute(
+        select(MetricScore).join(EvalResult).where(EvalResult.eval_run_id == run.id)
+    )
+    buckets: dict[str, list] = {}
+    for item in stored.scalars().all():
+        buckets.setdefault(item.metric_name, []).append(
+            effective_score(item.score, item.human_score)
+        )
+    previous = run.results_summary or {}
+    progress = previous.get("progress") or {}
+    summary = eval_service._summarize(
+        buckets,
+        progress.get("total") or 0,
+        previous.get("failed_rows") or 0,
+        progress.get("completed") or 0,
+    )
+    if previous.get("anomaly"):
+        summary["anomaly"] = previous["anomaly"]
+    run.results_summary = summary
+    await db.commit()
+    return {"id": str(score.id), "human_score": score.human_score}
 
 
 @router.get("", response_model=List[EvalRunResponse])
@@ -107,8 +174,18 @@ async def export_csv(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["dataset_row_id", "output", "latency_ms", "input_tokens", "output_tokens", "estimated_cost"])
+    metric_names = sorted({score.metric_name for result in run.results for score in result.scores})
+    writer.writerow([
+        "dataset_row_id",
+        "output",
+        "latency_ms",
+        "input_tokens",
+        "output_tokens",
+        "estimated_cost",
+        *metric_names,
+    ])
     for r in run.results:
+        by_name = {s.metric_name: s.human_score if s.human_score is not None else s.score for s in r.scores}
         writer.writerow([
             str(r.dataset_row_id),
             r.output,
@@ -116,6 +193,7 @@ async def export_csv(
             r.input_tokens,
             r.output_tokens,
             r.estimated_cost,
+            *[by_name.get(name, "") for name in metric_names],
         ])
 
     return Response(

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from app.core.time import utcnow
 
 from sqlalchemy import String, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,5 +21,5 @@ class ABTest(Base):
     results_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     per_sample_breakdown: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

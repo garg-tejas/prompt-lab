@@ -1,0 +1,38 @@
+name: PromptLab eval
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: PromptLab origin
+        required: true
+        default: http://localhost:8000
+      prompt_id:
+        required: true
+      prompt_version_id:
+        required: true
+      dataset_id:
+        required: true
+      model_id:
+        required: true
+      judge_model_id:
+        required: true
+      metric:
+        default: answer_correctness
+      min_score:
+        default: "0.7"
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/promptlab-eval
+        with:
+          api_url: ${{ inputs.api_url }}
+          api_token: ${{ secrets.PROMPTLAB_API_TOKEN }}
+          prompt_id: ${{ inputs.prompt_id }}
+          prompt_version_id: ${{ inputs.prompt_version_id }}
+          dataset_id: ${{ inputs.dataset_id }}
+          model_id: ${{ inputs.model_id }}
+          judge_model_id: ${{ inputs.judge_model_id }}
+          metric: ${{ inputs.metric }}
+          min_score: ${{ inputs.min_score }}

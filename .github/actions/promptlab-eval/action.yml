@@ -1,0 +1,88 @@
+name: PromptLab eval
+description: Run a PromptLab evaluation and fail the job if a metric is below the floor.
+inputs:
+  api_url:
+    description: PromptLab origin, without a trailing path
+    required: true
+  api_token:
+    description: Token from Connect (pl_...)
+    required: true
+  prompt_id:
+    required: true
+  prompt_version_id:
+    required: true
+  dataset_id:
+    required: true
+  model_id:
+    required: true
+  judge_model_id:
+    required: true
+  metric:
+    description: Metric mean that must clear the floor
+    default: answer_correctness
+  min_score:
+    default: "0.7"
+runs:
+  using: composite
+  steps:
+    - name: Run eval and check the floor
+      shell: python
+      env:
+        PROMPTLAB_API_URL: ${{ inputs.api_url }}
+        PROMPTLAB_API_TOKEN: ${{ inputs.api_token }}
+        PROMPTLAB_PROMPT_ID: ${{ inputs.prompt_id }}
+        PROMPTLAB_PROMPT_VERSION_ID: ${{ inputs.prompt_version_id }}
+        PROMPTLAB_DATASET_ID: ${{ inputs.dataset_id }}
+        PROMPTLAB_MODEL_ID: ${{ inputs.model_id }}
+        PROMPTLAB_JUDGE_MODEL_ID: ${{ inputs.judge_model_id }}
+        PROMPTLAB_METRIC: ${{ inputs.metric }}
+        PROMPTLAB_MIN_SCORE: ${{ inputs.min_score }}
+      run: |
+        import json, os, time, urllib.request
+
+        base = os.environ["PROMPTLAB_API_URL"].rstrip("/")
+        token = os.environ["PROMPTLAB_API_TOKEN"]
+        metric = os.environ["PROMPTLAB_METRIC"]
+        floor = float(os.environ["PROMPTLAB_MIN_SCORE"])
+
+        def call(method, path, body=None):
+            data = None if body is None else json.dumps(body).encode()
+            req = urllib.request.Request(
+                base + path,
+                data=data,
+                method=method,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req) as res:
+                return json.loads(res.read().decode())
+
+        created = call("POST", "/api/v1/eval-runs", {
+            "name": "ci",
+            "prompt_id": os.environ["PROMPTLAB_PROMPT_ID"],
+            "prompt_version_id": os.environ["PROMPTLAB_PROMPT_VERSION_ID"],
+            "dataset_id": os.environ["PROMPTLAB_DATASET_ID"],
+            "model_id": os.environ["PROMPTLAB_MODEL_ID"],
+            "judge_model_id": os.environ["PROMPTLAB_JUDGE_MODEL_ID"],
+            "config": {"concurrency": 4, "retry_count": 2},
+        })
+        run_id = created["id"]
+        status = created["status"]
+        summary = created.get("results_summary")
+        for _ in range(120):
+            if status in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(5)
+            current = call("GET", f"/api/v1/eval-runs/{run_id}")
+            status = current["status"]
+            summary = current.get("results_summary")
+        if status != "completed":
+            raise SystemExit(f"eval {run_id} finished as {status}")
+        mean = ((summary or {}).get("metrics") or {}).get(metric, {}).get("mean")
+        if mean is None:
+            raise SystemExit(f"metric {metric} missing from run {run_id}")
+        print(f"{metric}={mean}")
+        if mean < floor:
+            raise SystemExit(f"{metric} {mean} is below {floor}")

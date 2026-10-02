@@ -251,9 +251,32 @@ docker-compose up --build
 - [x] Phase 1: Core (Prompt registry + Eval engine)
 - [x] Phase 2: A/B Testing engine
 - [x] Phase 3: Dataset manager + Model registry + Trends
-- [ ] Phase 4: CI/CD integration (GitHub Action, webhooks, badges)
-- [ ] Phase 4: Live pipeline connector SDK
-- [ ] Phase 4: Anomaly detection & production monitoring
+- [x] Phase 4: CI gate (`.github/actions/promptlab-eval`), webhooks, badges
+- [x] Phase 4: Live ingest (`POST /api/v1/ingest`, `sdk/promptlab.py`)
+- [x] Phase 4: Regression check against the previous run on the same prompt, dataset, and model
+
+### Connect a pipeline
+
+Create a token on the Connect page. It is shown once and sent as `Authorization: Bearer pl_...`.
+
+```python
+from promptlab import PromptLab
+
+lab = PromptLab("http://localhost:8000", "pl_...")
+lab.ingest(
+    prompt_id="<uuid>",
+    inputs={"question": "...", "context": "...", "expected_answer": "..."},
+    output="the model's answer",
+)
+```
+
+Omit `output` and pass `model_id` to have PromptLab run the prompt. A completed eval that drops a metric by 0.1 or more against the previous matching run is marked `anomaly` and fires the `eval.anomaly` webhook.
+
+Badge (no auth, latest completed run):
+
+`GET /api/v1/badges/{prompt_id}.svg?metric=answer_correctness`
+
+GitHub Action: `.github/actions/promptlab-eval`. It creates a run, polls until it finishes, and fails the job when the metric mean is under `min_score`.
 
 ---
 

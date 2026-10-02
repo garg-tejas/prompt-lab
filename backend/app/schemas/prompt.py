@@ -18,6 +18,8 @@ class PromptVersionBase(BaseModel):
     version_hash: str
     commit_message: str
     content: str
+    system_content: Optional[str] = None
+    messages: Optional[List[dict]] = None
     variables: List[str]
     tag: Optional[str] = None
 
@@ -25,6 +27,8 @@ class PromptVersionBase(BaseModel):
 class PromptVersionCreate(BaseModel):
     content: str
     commit_message: str
+    system_content: Optional[str] = None
+    messages: List[dict] = []
 
 
 class PromptVersionResponse(PromptVersionBase):
@@ -41,6 +45,8 @@ class PromptBase(BaseModel):
 
 class PromptCreate(PromptBase):
     content: str
+    system_content: Optional[str] = None
+    messages: List[dict] = []
     commit_message: str
     tags: List[str] = []
 

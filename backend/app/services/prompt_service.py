@@ -2,9 +2,9 @@ import difflib
 import hashlib
 import time
 import re
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
+from app.core.time import utcnow
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
@@ -14,13 +14,31 @@ from app.models.prompt import Prompt, PromptVersion, PromptTag
 from app.models.user import User
 
 
-def extract_variables(content: str) -> List[str]:
-    matches = re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", content)
+def extract_variables(*contents: str | None) -> List[str]:
+    matches: List[str] = []
+    for content in contents:
+        if content:
+            matches.extend(re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", content))
     return list(dict.fromkeys(matches))
+
+
+def _message_text(messages: list | None) -> str:
+    parts = []
+    for turn in messages or []:
+        if isinstance(turn, dict):
+            parts.append(str(turn.get("content") or ""))
+    return "\n".join(parts)
 
 
 def generate_version_hash(content: str) -> str:
     return hashlib.sha256(f"{content}{time.time()}".encode()).hexdigest()[:7]
+
+
+def version_text(version: PromptVersion) -> str:
+    import json
+
+    messages = json.dumps(version.messages or [], sort_keys=True)
+    return "\n".join([version.system_content or "", messages, version.content or ""])
 
 
 def compute_diff(content_a: str, content_b: str) -> str:
@@ -58,10 +76,18 @@ async def create_prompt(db: AsyncSession, data, owner: User) -> Prompt:
 
     version = PromptVersion(
         prompt_id=prompt.id,
-        version_hash=generate_version_hash(data.content),
+        version_hash=generate_version_hash(
+            f"{getattr(data, 'system_content', None) or ''}{data.content}"
+        ),
         commit_message=data.commit_message,
         content=data.content,
-        variables=extract_variables(data.content),
+        system_content=getattr(data, "system_content", None) or None,
+        messages=getattr(data, "messages", None) or [],
+        variables=extract_variables(
+            data.content,
+            getattr(data, "system_content", None),
+            _message_text(getattr(data, "messages", None)),
+        ),
         tag="production",
         created_by=owner.id,
     )
@@ -117,7 +143,7 @@ async def update_prompt(
     if data.tags is not None:
         tags = await get_or_create_tags(db, data.tags)
         prompt.tags = tags
-    prompt.updated_at = datetime.utcnow()
+    prompt.updated_at = utcnow()
     await db.commit()
     # Re-fetch with relationships loaded to avoid lazy-load errors in async context
     result = await db.execute(
@@ -129,14 +155,22 @@ async def update_prompt(
 
 
 async def create_version(
-    db: AsyncSession, prompt_id: UUID, content: str, commit_message: str, user: User
+    db: AsyncSession,
+    prompt_id: UUID,
+    content: str,
+    commit_message: str,
+    user: User,
+    system_content: str | None = None,
+    messages: list | None = None,
 ) -> PromptVersion:
     version = PromptVersion(
         prompt_id=prompt_id,
-        version_hash=generate_version_hash(content),
+        version_hash=generate_version_hash(f"{system_content or ''}{content}{_message_text(messages)}"),
         commit_message=commit_message,
         content=content,
-        variables=extract_variables(content),
+        system_content=system_content or None,
+        messages=messages or [],
+        variables=extract_variables(content, system_content, _message_text(messages)),
         tag="dev",
         created_by=user.id,
     )
@@ -148,7 +182,7 @@ async def create_version(
     result = await db.execute(select(Prompt).where(Prompt.id == prompt_id))
     prompt = result.scalar_one_or_none()
     if prompt:
-        prompt.updated_at = datetime.utcnow()
+        prompt.updated_at = utcnow()
         await db.commit()
 
     return version
@@ -220,6 +254,8 @@ async def fork_prompt(
         version_hash=generate_version_hash(source_version.content),
         commit_message=f"Forked from version {source_version.version_hash}",
         content=source_version.content,
+        system_content=source_version.system_content,
+        messages=source_version.messages,
         variables=source_version.variables,
         tag="production",
         created_by=user.id,

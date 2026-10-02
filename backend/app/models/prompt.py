@@ -2,6 +2,7 @@ import uuid
 import re
 from datetime import datetime
 from typing import List
+from app.core.time import utcnow
 
 from sqlalchemy import String, Text, DateTime, ForeignKey, Table, Column, JSON
 from sqlalchemy.dialects.postgresql import UUID
@@ -22,7 +23,7 @@ class PromptTag(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     prompts: Mapped[List["Prompt"]] = relationship(
         "Prompt", secondary=prompt_tag_association, back_populates="tags"
@@ -36,8 +37,8 @@ class Prompt(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     owner: Mapped["User"] = relationship("User")  # type: ignore[name-defined]
     tags: Mapped[List[PromptTag]] = relationship(
@@ -59,10 +60,12 @@ class PromptVersion(Base):
     version_hash: Mapped[str] = mapped_column(String(7), nullable=False, index=True)
     commit_message: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    system_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    messages: Mapped[list | None] = mapped_column(JSON, nullable=True)
     variables: Mapped[List[str]] = mapped_column(JSON, default=list)
     tag: Mapped[str | None] = mapped_column(String, nullable=True)  # dev, staging, production
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     prompt: Mapped[Prompt] = relationship(Prompt, back_populates="versions")
     creator: Mapped["User"] = relationship("User")  # type: ignore[name-defined]

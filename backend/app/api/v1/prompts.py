@@ -80,7 +80,7 @@ async def create_version(
     if not prompt or prompt.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Prompt not found")
     version = await prompt_service.create_version(
-        db, prompt_id, data.content, data.commit_message, user
+        db, prompt_id, data.content, data.commit_message, user, data.system_content, data.messages
     )
     return PromptVersionResponse.model_validate(version)
 
@@ -121,7 +121,10 @@ async def diff_versions(
     if not version_a or not version_b:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    diff = prompt_service.compute_diff(version_a.content, version_b.content)
+    diff = prompt_service.compute_diff(
+        prompt_service.version_text(version_a),
+        prompt_service.version_text(version_b),
+    )
     return DiffResponse(diff=diff)
 
 

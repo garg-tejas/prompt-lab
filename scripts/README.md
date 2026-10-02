@@ -10,7 +10,7 @@ Downloads the **CRAG (Comprehensive RAG Benchmark)** dataset from HuggingFace an
 
 ```bash
 cd backend
-uv run python ../scripts/download_crag.py
+uv run --extra crag python ../scripts/download_crag.py
 ```
 
 ### What it does

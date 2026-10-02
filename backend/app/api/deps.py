@@ -1,3 +1,6 @@
+import hashlib
+from app.core.time import utcnow
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,6 +8,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.core.security import verify_clerk_token
+from app.models.access import ApiToken
 from app.models.user import User
 
 security = HTTPBearer(auto_error=False)
@@ -22,7 +26,11 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    payload = verify_clerk_token(credentials.credentials)
+    raw = credentials.credentials
+    if raw.startswith("pl_"):
+        return await _user_from_api_token(db, raw)
+
+    payload = verify_clerk_token(raw)
     clerk_id = payload.get("sub")
     if not clerk_id:
         raise HTTPException(
@@ -48,6 +56,26 @@ async def get_current_user(
         await db.commit()
         await db.refresh(user)
 
+    return user
+
+
+async def _user_from_api_token(db: AsyncSession, raw: str) -> User:
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    result = await db.execute(select(ApiToken).where(ApiToken.token_hash == digest))
+    token = result.scalar_one_or_none()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API token",
+        )
+    user = await db.get(User, token.created_by)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API token",
+        )
+    token.last_used_at = utcnow()
+    await db.commit()
     return user
 
 

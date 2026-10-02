@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import engine, Base
@@ -42,4 +44,29 @@ app.include_router(api_router)
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    return {"status": "ok", "environment": settings.environment}
+    database = False
+    cache = False
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        database = True
+    except Exception:
+        database = False
+    try:
+        from redis.asyncio import from_url
+
+        client = from_url(settings.redis_url)
+        await client.ping()
+        await client.aclose()
+        cache = True
+    except Exception:
+        cache = False
+    body = {
+        "status": "ok" if database and cache else "degraded",
+        "database": database,
+        "redis": cache,
+        "environment": settings.environment,
+    }
+    if not (database and cache):
+        return JSONResponse(status_code=503, content=body)
+    return body

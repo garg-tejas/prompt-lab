@@ -4,6 +4,7 @@ from app.models.dataset import Dataset, DatasetRow
 from app.models.model import ModelEndpoint
 from app.models.eval import EvalRun, EvalResult, MetricScore
 from app.models.ab_test import ABTest
+from app.models.access import ApiToken, Webhook, WebhookDelivery, Trace
 
 __all__ = [
     "User",
@@ -17,4 +18,8 @@ __all__ = [
     "EvalResult",
     "MetricScore",
     "ABTest",
+    "ApiToken",
+    "Webhook",
+    "WebhookDelivery",
+    "Trace",
 ]

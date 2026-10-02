@@ -1,56 +1,56 @@
-import httpx
-from jose import jwt, jwk
-from jose.exceptions import JWTError
+import time
+
 from fastapi import HTTPException, status
-from functools import lru_cache
+from jwt import InvalidTokenError, PyJWKClient
+from jwt import decode as jwt_decode
 
 from app.config import get_settings
 
 settings = get_settings()
 
+_jwks_client: PyJWKClient | None = None
+_jwks_loaded_at: float = 0.0
+_JWKS_TTL_SECONDS = 3600
 
-@lru_cache
-def get_clerk_jwks() -> dict:
-    jwks_url = f"{settings.clerk_jwt_issuer}/.well-known/jwks.json"
-    response = httpx.get(jwks_url, timeout=10.0)
-    response.raise_for_status()
-    return response.json()
+
+def _jwks() -> PyJWKClient:
+    global _jwks_client, _jwks_loaded_at
+    now = time.time()
+    if _jwks_client is None or now - _jwks_loaded_at > _JWKS_TTL_SECONDS:
+        if not settings.clerk_jwt_issuer:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Clerk issuer is not configured",
+            )
+        _jwks_client = PyJWKClient(
+            f"{settings.clerk_jwt_issuer}/.well-known/jwks.json",
+            cache_keys=True,
+            lifespan=_JWKS_TTL_SECONDS,
+        )
+        _jwks_loaded_at = now
+    return _jwks_client
 
 
 def verify_clerk_token(token: str) -> dict:
-    """Verify a Clerk JWT token and return its payload."""
+    """Verify a Clerk JWT and return its payload. JWKS keys refresh hourly."""
     try:
-        header = jwt.get_unverified_header(token)
-        kid = header.get("kid")
-        if not kid:
-            raise ValueError("No 'kid' found in token header")
-
-        jwks = get_clerk_jwks()
-        key_data = None
-        for key in jwks.get("keys", []):
-            if key.get("kid") == kid:
-                key_data = key
-                break
-
-        if not key_data:
-            raise ValueError("No matching JWKS key found")
-
-        public_key = jwk.construct(key_data)
-        payload = jwt.decode(
+        signing_key = _jwks().get_signing_key_from_jwt(token)
+        return jwt_decode(
             token,
-            public_key,
+            signing_key.key,
             algorithms=["RS256"],
             issuer=settings.clerk_jwt_issuer,
             options={"require": ["exp", "iss", "sub"]},
         )
-        return payload
-    except JWTError as e:
+    except HTTPException:
+        raise
+    except InvalidTokenError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid authentication credentials: {e}",
-        )
-    except Exception as e:
+            detail="Invalid authentication credentials",
+        ) from exc
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication error: {e}",
-        )
+            detail="Authentication failed",
+        ) from exc

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import List
+from app.core.time import utcnow
 
 from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, Float, Boolean, JSON
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,7 +18,7 @@ class Dataset(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     domain_tag: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     owner: Mapped["User"] = relationship("User")  # type: ignore[name-defined]
     rows: Mapped[List["DatasetRow"]] = relationship(
@@ -33,6 +34,7 @@ class DatasetRow(Base):
     question: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[str] = mapped_column(Text, nullable=False)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    extras: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     dataset: Mapped[Dataset] = relationship(Dataset, back_populates="rows")

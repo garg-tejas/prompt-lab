@@ -25,6 +25,7 @@ async def create_dataset(db: AsyncSession, data, owner: User) -> Dataset:
             question=row_data.question,
             context=row_data.context,
             expected_answer=row_data.expected_answer,
+            extras=getattr(row_data, "extras", None) or {},
         )
         db.add(row)
 

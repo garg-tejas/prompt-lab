@@ -1,12 +1,14 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.models.dataset import Dataset, DatasetRow
 from app.services import dataset_service, file_parser
 from app.schemas.eval import DatasetCreate, DatasetResponse, DatasetDetailResponse, DatasetRowBase
 
@@ -125,12 +127,25 @@ async def list_datasets(
 @router.get("/{dataset_id}", response_model=DatasetDetailResponse)
 async def get_dataset(
     dataset_id: UUID,
+    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    dataset = await dataset_service.get_dataset(db, dataset_id)
+    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = result.scalar_one_or_none()
     if not dataset or dataset.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    total = await db.scalar(
+        select(func.count()).select_from(DatasetRow).where(DatasetRow.dataset_id == dataset.id)
+    )
+    rows = await db.execute(
+        select(DatasetRow)
+        .where(DatasetRow.dataset_id == dataset.id)
+        .order_by(DatasetRow.created_at)
+        .offset(offset)
+        .limit(limit)
+    )
     return DatasetDetailResponse(
         id=dataset.id,
         name=dataset.name,
@@ -138,8 +153,8 @@ async def get_dataset(
         domain_tag=dataset.domain_tag,
         owner_id=dataset.owner_id,
         created_at=dataset.created_at,
-        row_count=len(dataset.rows),
-        rows=dataset.rows,
+        row_count=total or 0,
+        rows=list(rows.scalars().all()),
     )
 
 

@@ -6,6 +6,20 @@ from typing import List
 from fastapi import UploadFile, File, HTTPException
 
 
+_RESERVED = {"question", "context", "expected_answer"}
+
+
+def _extras(item: dict) -> dict:
+    extras = {}
+    for key, value in item.items():
+        if key in _RESERVED or value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            extras[key] = text
+    return extras
+
+
 def parse_csv_file(content: bytes) -> List[dict]:
     try:
         text = content.decode("utf-8")
@@ -23,7 +37,8 @@ def parse_csv_file(content: bytes) -> List[dict]:
             rows.append({
                 "question": question,
                 "context": context,
-                "expected_answer": row.get("expected_answer", "").strip() or None,
+                "expected_answer": (row.get("expected_answer") or "").strip() or None,
+                "extras": _extras(row),
             })
         if not rows:
             raise ValueError("No valid rows found (need at least 'question' and 'context' columns)")
@@ -45,6 +60,7 @@ def parse_json_file(content: bytes) -> List[dict]:
                 "question": str(item.get("question", "")).strip(),
                 "context": str(item.get("context", "")).strip(),
                 "expected_answer": str(item.get("expected_answer", "")).strip() or None,
+                "extras": _extras(item),
             })
         return rows
     except Exception as e:

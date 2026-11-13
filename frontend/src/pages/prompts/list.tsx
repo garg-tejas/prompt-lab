@@ -1,141 +1,36 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "@clerk/clerk-react";
-import { api } from "@/lib/api";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PromptForm } from "@/components/prompt-form";
+import { PageHeading, RegistrySearch, RegistryState } from "@/components/workbench";
+import { useRegistry } from "@/hooks/useRegistry";
 import type { Prompt } from "@/types";
-import { GitBranch, Plus, Tag, TrendingUp } from "lucide-react";
+import { Plus, ArrowUpRight } from "lucide-react";
 
 export function PromptListPage() {
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  const [loading, setLoading] = useState(true);
+  const registry = useRegistry<Prompt & { status?: string }>("/api/v1/prompts");
+  return <PromptRegistryView {...registry} />;
+}
+
+export function PromptRegistryView({ rows: prompts, loading, error, refresh, isSignedIn }: {
+  rows: Prompt[]; loading: boolean; error: boolean; refresh: () => void; isSignedIn?: boolean;
+}) {
   const [showForm, setShowForm] = useState(false);
-  const navigate = useNavigate();
-  const { isSignedIn } = useAuth();
-
-  const fetchPrompts = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get("/api/v1/prompts");
-      setPrompts(res.data);
-    } catch (err) {
-      console.error("Failed to fetch prompts", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isSignedIn) {
-      fetchPrompts();
-    }
-  }, [isSignedIn]);
-
+  const [query, setQuery] = useState("");
+  const filtered = prompts.filter((prompt) => `${prompt.name} ${prompt.description ?? ""} ${prompt.tags.map((tag) => tag.name).join(" ")}`.toLowerCase().includes(query.toLowerCase()));
   return (
-    <div className="container py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Prompts</h1>
-          <p className="text-muted-foreground mt-1">
-            Version, evaluate, and ship prompts with confidence.
-          </p>
-        </div>
-        <Button className="gap-2" onClick={() => setShowForm(true)}>
-          <Plus className="h-4 w-4" />
-          New Prompt
-        </Button>
-      </div>
-
-      {showForm && (
-        <Card className="mb-8 border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Create New Prompt</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <PromptForm
-              onSuccess={() => {
-                setShowForm(false);
-                fetchPrompts();
-              }}
-              onCancel={() => setShowForm(false)}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {loading ? (
-        <div className="text-sm text-muted-foreground font-mono animate-pulse">
-          Loading prompts...
-        </div>
-      ) : prompts.length === 0 ? (
-        <div className="text-sm text-muted-foreground">
-          No prompts yet. Create your first one above.
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {prompts.map((prompt) => (
-            <Card
-              key={prompt.id}
-              className="border-border cursor-pointer hover:bg-card/80 transition-colors"
-              onClick={() => navigate(`/prompts/${prompt.id}`)}
-            >
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-base">{prompt.name}</h3>
-                      {prompt.production_version && (
-                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                          production
-                        </span>
-                      )}
-                    </div>
-                    {prompt.description && (
-                      <p className="text-sm text-muted-foreground">
-                        {prompt.description}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 pt-1">
-                      {prompt.tags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground"
-                        >
-                          <Tag className="h-3 w-3" />
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/trends/${prompt.id}`);
-                      }}
-                      className="flex items-center gap-1 text-primary hover:underline"
-                    >
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      Trends
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <GitBranch className="h-3.5 w-3.5" />
-                      {prompt.version_count} versions
-                    </div>
-                    {prompt.latest_version && (
-                      <span className="text-amber-500">
-                        {prompt.latest_version.version_hash}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+    <div className="container">
+      <PageHeading index="01 / Build" title="Prompt registry" description="A working record of your prompts. Keep versions together, inspect changes, and put each iteration to the test." action={isSignedIn && <Button className="gap-2" onClick={() => setShowForm(true)}><Plus size={15} />New prompt</Button>} />
+      {showForm && <Card className="mb-8"><CardHeader><CardTitle className="text-base">Create a prompt</CardTitle></CardHeader><CardContent><PromptForm onSuccess={() => { setShowForm(false); refresh(); }} onCancel={() => setShowForm(false)} /></CardContent></Card>}
+      <RegistrySearch value={query} onChange={setQuery} placeholder="Find a prompt or tag…"><span className="lab-count">{loading ? "Loading registry" : `${filtered.length} / ${prompts.length} prompts`}</span></RegistrySearch>
+      {!isSignedIn ? <RegistryState title="Your workspace starts here">Sign in to access your prompt versions and evaluation history.<br /><Link to="/sign-in" className="text-primary underline">Sign in to PromptLab</Link></RegistryState>
+        : loading ? <RegistryState title="Loading the registry…">Retrieving your prompts and version metadata.</RegistryState>
+        : error ? <RegistryState title="The registry could not be loaded" error onRetry={refresh}>Your prompts may still be available. Check the connection and try again.</RegistryState>
+        : !prompts.length ? <RegistryState title="Give your first prompt a home">Create a prompt, save a version, then evaluate it against a dataset. The registry will keep the iterations together.</RegistryState>
+        : !filtered.length ? <RegistryState title="No matching prompts">Try a different name or tag.</RegistryState>
+        : <div className="lab-table-wrap" tabIndex={0} role="region" aria-label="Prompt registry table"><table className="lab-table"><thead><tr><th scope="col">Prompt / purpose</th><th scope="col">Versions</th><th scope="col">Latest revision</th><th scope="col">Explore</th></tr></thead><tbody>{filtered.map((prompt) => <tr key={prompt.id}><td><Link className="lab-table-name" to={`/prompts/${prompt.id}`}>{prompt.name}</Link><p className="lab-table-description">{prompt.description || "No description added."}</p><div className="mt-2">{prompt.tags.map((tag) => <span className="lab-tag" key={tag.id}>{tag.name}</span>)}{prompt.production_version && <span className="lab-tag text-primary">Production version set</span>}</div></td><td className="lab-table-meta">{prompt.version_count} saved</td><td className="lab-table-meta">{prompt.latest_version?.version_hash ?? "No version yet"}</td><td><Link to={`/trends/${prompt.id}`} className="inline-flex items-center gap-1 text-xs text-primary">Trends <ArrowUpRight size={13} /></Link></td></tr>)}</tbody></table></div>}
+      <p className="lab-footnote">Registry → Version → Evaluation → Comparison. Production labels track your selection; they do not certify quality.</p>
     </div>
   );
 }

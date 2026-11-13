@@ -82,14 +82,23 @@ async def review_score(
         )
     previous = run.results_summary or {}
     progress = previous.get("progress") or {}
-    summary = eval_service._summarize(
-        buckets,
-        progress.get("total") or 0,
-        previous.get("failed_rows") or 0,
-        progress.get("completed") or 0,
-    )
-    if previous.get("anomaly"):
-        summary["anomaly"] = previous["anomaly"]
+    # Recompute derived values while retaining evaluation-time provenance. Never
+    # reconstruct the fingerprint or eligibility from the current mutable dataset.
+    summary = {
+        **previous,
+        **eval_service._summarize(
+            buckets,
+            progress.get("total", previous.get("total_samples", 0)),
+            previous.get("failed_rows") or 0,
+            progress.get("completed") or 0,
+        ),
+    }
+    # An anomaly is derived from metric means, so an old flag may no longer apply
+    # after a review (and a review can also introduce a new regression).
+    summary.pop("anomaly", None)
+    anomaly = await eval_service._detect_anomaly(db, run, summary)
+    if anomaly:
+        summary["anomaly"] = anomaly
     run.results_summary = summary
     await db.commit()
     return {"id": str(score.id), "human_score": score.human_score}

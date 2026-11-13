@@ -1,124 +1,36 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHeading, RegistrySearch, RegistryState, StatusLabel, StatusFilter } from "@/components/workbench";
+import { useRegistry } from "@/hooks/useRegistry";
 import type { EvalRunResponse } from "@/types/eval";
-import { Play, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Plus } from "lucide-react";
+
+function metricValue(value: unknown) {
+  const numeric = value !== null && typeof value === "object" && "mean" in value ? (value as { mean: unknown }).mean : value;
+  return typeof numeric === "number" && Number.isFinite(numeric) ? numeric.toFixed(2) : "Unavailable";
+}
 
 export function EvalHistoryPage() {
-  const [runs, setRuns] = useState<EvalRunResponse[]>([]);
-  const [loading, setLoading] = useState(true);
+  const registry = useRegistry<EvalRunResponse>("/api/v1/eval-runs", true);
+  return <RunLedgerView {...registry} />;
+}
 
-  const fetchRuns = async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const res = await api.get("/api/v1/eval-runs");
-      setRuns(res.data);
-      return res.data as EvalRunResponse[];
-    } catch (err) {
-      console.error("Failed to fetch eval runs", err);
-      return [];
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let timer: number | undefined;
-    const tick = async (silent: boolean) => {
-      const rows = await fetchRuns(silent);
-      if (rows.some((run) => run.status === "pending" || run.status === "running")) {
-        timer = window.setTimeout(() => tick(true), 3000);
-      }
-    };
-    tick(false);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const statusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "failed":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case "running":
-        return <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />;
-      default:
-        return <Clock className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
-  return (
-    <div className="container py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Eval Runs</h1>
-          <p className="text-muted-foreground mt-1">
-            History of all evaluation runs.
-          </p>
-        </div>
-        <Button className="gap-2" asChild>
-          <Link to="/runs/new">
-            <Play className="h-4 w-4" />
-            New Eval
-          </Link>
-        </Button>
-      </div>
-
-      {loading ? (
-        <div className="text-sm text-muted-foreground font-mono animate-pulse">
-          Loading runs...
-        </div>
-      ) : runs.length === 0 ? (
-        <div className="text-sm text-muted-foreground">
-          No eval runs yet. Start your first evaluation.
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {runs.map((run) => (
-            <Card
-              key={run.id}
-              className="border-border hover:bg-card/80 transition-colors"
-            >
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      {statusIcon(run.status)}
-                      <Link
-                        to={`/runs/${run.id}`}
-                        className="font-semibold text-base hover:text-primary transition-colors"
-                      >
-                        {run.name}
-                      </Link>
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono">
-                      {new Date(run.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {run.results_summary && run.results_summary.metrics && (
-                      <div className="flex items-center gap-3 text-xs font-mono">
-                        {Object.entries(run.results_summary.metrics).map(
-                          ([name, stats]: [string, any]) => (
-                            <div key={name} className="text-muted-foreground">
-                              <span className="capitalize">{name.replace("_", " ")}:</span>{" "}
-                              <span className="text-foreground font-semibold">
-                                {typeof stats === "object" ? stats.mean.toFixed(2) : stats}
-                              </span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+export function RunLedgerView({ rows: runs, loading, error, refresh, isSignedIn }: {
+  rows: EvalRunResponse[]; loading: boolean; error: boolean; refresh: () => void; isSignedIn?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const filtered = runs.filter((run) => (status === "all" || run.status === status) && `${run.name} ${run.id}`.toLowerCase().includes(query.toLowerCase()));
+  return <div className="container">
+    <PageHeading index="02 / Evaluate" title="Run ledger" description="Inspect what ran, which inputs were used, and how it scored. Open a run to review individual outputs and human overrides." action={isSignedIn && <Button asChild className="gap-2"><Link to="/runs/new"><Plus size={15} />Configure evaluation</Link></Button>} />
+    <RegistrySearch value={query} onChange={setQuery} placeholder="Find a run by name or ID…"><StatusFilter value={status} onChange={setStatus} /><span className="lab-count">{filtered.length} / {runs.length} runs</span></RegistrySearch>
+    {!isSignedIn ? <RegistryState title="Sign in to inspect your runs"><Link to="/sign-in" className="text-primary underline">Sign in to PromptLab</Link></RegistryState>
+      : loading ? <RegistryState title="Loading evaluation runs…">Retrieving the run ledger.</RegistryState>
+      : error ? <RegistryState title="Runs could not be refreshed" error onRetry={refresh}>Check the connection and retry. No result is inferred from an unavailable run.</RegistryState>
+      : !runs.length ? <RegistryState title="No experiments recorded yet">Configure an evaluation with a saved prompt version, dataset, and model endpoint. Launching a run uses your configured model provider.</RegistryState>
+      : !filtered.length ? <RegistryState title="No runs match these filters">Change the search or status to see more of the ledger.</RegistryState>
+      : <div className="lab-table-wrap" tabIndex={0} role="region" aria-label="Evaluation runs table"><table className="lab-table"><thead><tr><th scope="col">Evaluation / run ID</th><th scope="col">Status</th><th scope="col">Recorded metrics</th><th scope="col">Created</th></tr></thead><tbody>{filtered.map((run) => <tr key={run.id}><td><Link to={`/runs/${run.id}`} className="lab-table-name">{run.name}</Link><div className="lab-table-meta" title={run.id}>{run.id.slice(0, 12)}</div></td><td><StatusLabel status={run.status} /></td><td>{run.results_summary?.metrics && Object.keys(run.results_summary.metrics).length ? <div className="space-y-1">{Object.entries(run.results_summary.metrics).map(([name, value]) => <div className="lab-table-meta" key={name}><span>{name.replace(/_/g, " ")}</span><strong className="ml-3 font-medium text-foreground">{metricValue(value)}</strong></div>)}</div> : <span className="lab-table-meta">No metrics recorded</span>}</td><td className="lab-table-meta">{new Date(run.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}<div>{new Date(run.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</div></td></tr>)}</tbody></table></div>}
+    <p className="lab-footnote">Pending and running evaluations refresh every 3 seconds. Metric values are recorded means; inspect coverage and individual examples before drawing conclusions.</p>
+  </div>;
 }

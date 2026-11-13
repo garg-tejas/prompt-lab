@@ -23,15 +23,18 @@ class TestPairedStats:
     def test_empty_list(self):
         """An empty diff list should return neutral stats with no winner."""
         result = _paired_stats([])
-        assert result["mean_diff"] == 0.0
+        assert result["mean_diff"] is None
         assert result["significant"] is False
         assert result["winner"] == "tie"
 
     def test_single_element(self):
-        """A single diff cannot produce a meaningful std-dev — returns neutral stats."""
+        """Keep the observed difference without inventing inferential statistics."""
         result = _paired_stats([0.5])
-        assert result["mean_diff"] == 0.0  # early-return guard for n < 2
-        assert result["std_dev"] == 0.0
+        assert result["mean_diff"] == 0.5
+        assert result["std_dev"] is None
+        assert result["std_error"] is None
+        assert result["t_stat"] is None
+        assert result["ci_95"] is None
         assert result["significant"] is False
         assert result["winner"] == "tie"
 

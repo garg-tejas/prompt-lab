@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -39,24 +39,27 @@ export function TrendsPage() {
   const [data, setData] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchTrends = async () => {
+  const fetchTrends = useCallback(async (signal?: AbortSignal) => {
     if (!promptId) return;
     setLoading(true);
     try {
       const res = await api.get(`/api/v1/analytics/prompts/${promptId}/trends`, {
         params: { metric },
+        signal,
       });
-      setData(res.data.data);
+      if (!signal?.aborted) setData(res.data.data);
     } catch (err) {
-      console.error("Failed to fetch trends", err);
+      if (!signal?.aborted) console.error("Failed to fetch trends", err);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, [promptId, metric]);
 
   useEffect(() => {
-    fetchTrends();
-  }, [promptId, metric]);
+    const controller = new AbortController();
+    void fetchTrends(controller.signal);
+    return () => controller.abort();
+  }, [fetchTrends]);
 
   return (
     <div className="container py-8 space-y-6">

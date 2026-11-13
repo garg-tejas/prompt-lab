@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -16,25 +16,29 @@ export function DatasetDetailPage() {
   const [offset, setOffset] = useState(0);
   const pageSize = 50;
 
-  const fetchDataset = async (nextOffset = offset) => {
+  const fetchDataset = useCallback(async (nextOffset: number, signal?: AbortSignal) => {
     if (!id) return;
     setLoading(true);
     try {
       const res = await api.get(`/api/v1/datasets/${id}`, {
         params: { offset: nextOffset, limit: pageSize },
+        signal,
       });
+      if (signal?.aborted) return;
       setDataset(res.data);
       setOffset(nextOffset);
     } catch (err) {
-      console.error("Failed to fetch dataset", err);
+      if (!signal?.aborted) console.error("Failed to fetch dataset", err);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    fetchDataset(0);
-  }, [id]);
+    const controller = new AbortController();
+    void fetchDataset(0, controller.signal);
+    return () => controller.abort();
+  }, [fetchDataset]);
 
   if (loading) {
     return (

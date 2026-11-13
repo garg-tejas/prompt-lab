@@ -81,15 +81,15 @@ def paired_stats(diffs: List[float]) -> dict:
     n = len(diffs)
     if n < 2:
         return {
-            "mean_diff": 0.0,
-            "std_dev": 0.0,
-            "std_error": 0.0,
+            "mean_diff": round(diffs[0], 4) if n == 1 else None,
+            "std_dev": None,
+            "std_error": None,
             "n": n,
-            "t_stat": 0.0,
+            "t_stat": None,
             "p_value": None,
             "significant": False,
             "winner": "tie",
-            "ci_95": [0.0, 0.0],
+            "ci_95": None,
         }
 
     mean_diff = sum(diffs) / n

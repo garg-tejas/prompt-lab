@@ -55,11 +55,19 @@ Built with FastAPI + React, featuring git-like prompt versioning, LLM-as-judge e
 
 ### A/B Testing Engine
 
-- Compare any two eval runs on the same dataset
+- Compare two distinct completed eval runs you own on the same dataset
 - Statistical significance via paired t-test
 - Head-to-head metric table with 95% confidence intervals
-- Per-sample breakdown showing where A beat B
-- Overall winner declaration
+- Pair by dataset row ID; retain unmatched rows and expose missing results and judge scores
+- Compare human-overridden quality scores alongside lower-is-better latency, cost, and token counts
+- Preserve raw A-minus-B deltas and confidence intervals; orient winners to each known metric's direction
+- Declare an overall quality preference only with complete known coverage and unanimous quality metrics
+
+The comparison is descriptive, not an automatic release recommendation. No primary metric or multiple-comparison correction is configured. Unknown metric directions never receive an assumed winner. Missing run totals leave coverage unverified. Cost and speed metrics do not vote against quality metrics; individually significant metric results should not be read as family-wise significance. Existing saved comparisons retain their historical results until recomputed.
+
+Result-row coverage is separate from metric coverage. A single pair retains its observed difference but has no confidence interval or significance claim. New evaluation runs record the exact rows eligible for each metric; reference-answer metrics are inapplicable when no reference exists. Comparisons use eligibility only when both evaluation-time manifests match. Historical runs without manifests report conditional metric coverage as unknown rather than guessing from today's editable dataset. Retrying a partially recorded run with a changed manifest requires a new run.
+
+New runs also fingerprint sampled row IDs, questions, contexts, reference answers and extras using canonical JSON. Different snapshots/samples are rejected even when the dataset ID is the same. A changed snapshot during a partially recorded retry requires a new run. Historical runs without fingerprints remain inspectable but cannot declare an overall preference. The fingerprint identifies exact serialized inputs, not semantic equivalence, annotation correctness, or an immutable backup of the dataset.
 
 ### Analytics
 

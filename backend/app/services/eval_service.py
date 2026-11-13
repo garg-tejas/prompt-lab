@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.crypto import decrypt_secret
+from app.core.dataset_snapshot import dataset_fingerprint
 from app.database import AsyncSessionLocal
 from app.models.dataset import Dataset, DatasetRow
 from app.models.eval import EvalRun, EvalResult, MetricScore
@@ -243,7 +244,7 @@ async def _is_cancelled(eval_run_id: str) -> bool:
         return run is None or run.status == "cancelled"
 
 
-def _summarize(scores_by_metric: dict, total: int, failed: int, completed: int) -> dict:
+def _summarize(scores_by_metric: dict, total: int, failed: int, completed: int, eligible_rows=None, input_fingerprint=None) -> dict:
     metrics = {}
     judge_errors = 0
     for metric_name, scores in scores_by_metric.items():
@@ -263,6 +264,8 @@ def _summarize(scores_by_metric: dict, total: int, failed: int, completed: int) 
         "judge_errors": judge_errors,
         "progress": {"completed": completed, "total": total, "failed": failed},
         "metrics": metrics,
+        **({"metric_eligible_rows": eligible_rows} if eligible_rows is not None else {}),
+        **({"dataset_fingerprint": input_fingerprint} if input_fingerprint is not None else {}),
     }
 
 
@@ -341,6 +344,30 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                 rows = random.Random(str(eval_run.id)).sample(rows, sample_size)
 
             total = len(rows)
+            input_fingerprint = dataset_fingerprint(rows)
+            previous_fingerprint = (eval_run.results_summary or {}).get("dataset_fingerprint")
+            if done_ids and previous_fingerprint is not None and previous_fingerprint != input_fingerprint:
+                raise ValueError("Dataset contents changed during retry; create a new evaluation run")
+            if done_ids and previous_fingerprint is None:
+                input_fingerprint = None
+            eligible_rows = {name: [] for name in metrics_for_row("reference")}
+            for row in rows:
+                for name in metrics_for_row(row.expected_answer):
+                    eligible_rows[name].append(str(row.id))
+            eligible_rows = {name: sorted(ids) for name, ids in eligible_rows.items()}
+            previous_eligibility = (eval_run.results_summary or {}).get("metric_eligible_rows")
+            if done_ids and previous_eligibility is not None and previous_eligibility != eligible_rows:
+                raise ValueError("Dataset metric applicability changed during retry; create a new evaluation run")
+            if not done_ids or previous_eligibility is not None:
+                eval_run.results_summary = {
+                    **(eval_run.results_summary or {}),
+                    "metric_eligible_rows": eligible_rows,
+                    **({"dataset_fingerprint": input_fingerprint} if input_fingerprint is not None else {}),
+                }
+                await db.commit()
+            else:
+                # A resumed historical run has no immutable eligibility record.
+                eligible_rows = None
             pending = [row for row in rows if row.id not in done_ids]
             completed = total - len(pending)
             failed = 0
@@ -446,12 +473,12 @@ async def run_eval_pipeline(eval_run_id: str) -> None:
                         scores_by_metric.setdefault(metric_name, []).append(judgment["score"])
                     completed += 1
 
-                eval_run.results_summary = _summarize(scores_by_metric, total, failed, completed)
+                eval_run.results_summary = _summarize(scores_by_metric, total, failed, completed, eligible_rows, input_fingerprint)
                 await db.commit()
 
             if await _is_cancelled(str(eval_run.id)):
                 raise EvalCancelled()
-            summary = _summarize(scores_by_metric, total, failed, completed)
+            summary = _summarize(scores_by_metric, total, failed, completed, eligible_rows, input_fingerprint)
             anomaly = await _detect_anomaly(db, eval_run, summary)
             if anomaly:
                 summary["anomaly"] = anomaly

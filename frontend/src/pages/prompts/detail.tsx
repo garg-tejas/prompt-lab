@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { notify } from "@/components/notice";
@@ -32,22 +32,24 @@ export function PromptDetailPage() {
   const [diffResult, setDiffResult] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
 
-  const fetchPrompt = async () => {
+  const fetchPrompt = useCallback(async (signal?: AbortSignal) => {
     if (!id) return;
     setLoading(true);
     try {
-      const res = await api.get(`/api/v1/prompts/${id}`);
-      setPrompt(res.data);
+      const res = await api.get(`/api/v1/prompts/${id}`, { signal });
+      if (!signal?.aborted) setPrompt(res.data);
     } catch (err) {
-      console.error("Failed to fetch prompt", err);
+      if (!signal?.aborted) console.error("Failed to fetch prompt", err);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    fetchPrompt();
-  }, [id]);
+    const controller = new AbortController();
+    void fetchPrompt(controller.signal);
+    return () => controller.abort();
+  }, [fetchPrompt]);
 
   const handlePromote = async (versionId: string, tag: string) => {
     if (!id) return;

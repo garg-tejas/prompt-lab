@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,32 +12,34 @@ export function ABTestDetailPage() {
   const [test, setTest] = useState<ABTestDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchTest = async (silent = false) => {
+  const fetchTest = useCallback(async (silent = false, signal?: AbortSignal) => {
     if (!id) return null;
     if (!silent) setLoading(true);
     try {
-      const res = await api.get(`/api/v1/ab-tests/${id}`);
+      const res = await api.get(`/api/v1/ab-tests/${id}`, { signal });
+      if (signal?.aborted) return null;
       setTest(res.data);
       return res.data as ABTestDetailResponse;
     } catch (err) {
-      console.error("Failed to fetch AB test", err);
+      if (!signal?.aborted) console.error("Failed to fetch AB test", err);
       return null;
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && !signal?.aborted) setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
     let timer: number | undefined;
+    const controller = new AbortController();
     const tick = async (silent: boolean) => {
-      const row = await fetchTest(silent);
-      if (row && (row.status === "pending" || row.status === "running")) {
+      const row = await fetchTest(silent, controller.signal);
+      if (!controller.signal.aborted && row && (row.status === "pending" || row.status === "running")) {
         timer = window.setTimeout(() => tick(true), 3000);
       }
     };
     tick(false);
-    return () => window.clearTimeout(timer);
-  }, [id]);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [fetchTest]);
 
   if (loading) {
     return (
@@ -58,6 +60,7 @@ export function ABTestDetailPage() {
   const isRunning = test.status === "running" || test.status === "pending";
   const metrics = test.results_summary?.metrics || {};
   const overall = test.results_summary?.overall_winner;
+  const coverage = test.results_summary?.coverage;
 
   return (
     <div className="container py-8 space-y-6">
@@ -90,10 +93,32 @@ export function ABTestDetailPage() {
           {overall && overall !== "tie" && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
               <Trophy className="h-4 w-4" />
-              {overall === "a" ? "Run A Wins" : "Run B Wins"}
+              {overall === "a" ? "Quality metrics favor A" : "Quality metrics favor B"}
             </span>
           )}
         </div>
+        {coverage && (
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <p>
+              Recorded results: A {coverage.observed_a}/{coverage.expected_a ?? "unknown"},
+              B {coverage.observed_b}/{coverage.expected_b ?? "unknown"}.
+              Unpaired rows: {coverage.only_a_row_ids.length} only in A,
+              {" "}{coverage.only_b_row_ids.length} only in B.
+            </p>
+            {!coverage.complete && (
+              <p className="text-amber-500">Result-row coverage is incomplete or unverified. No overall preference is declared.</p>
+            )}
+            {coverage.metric_coverage && coverage.metric_coverage !== "complete" && (
+              <p className="text-amber-500">Metric coverage is {coverage.metric_coverage}. Absent conditional scores may be inapplicable or missing; no overall preference is declared.</p>
+            )}
+          </div>
+        )}
+        {test.results_summary?.decision_note && (
+          <p className="text-sm text-muted-foreground">{test.results_summary.decision_note}</p>
+        )}
+        {test.results_summary?.dataset_snapshot_status === "unknown" && (
+          <p className="text-sm text-amber-500">The original input snapshots were not recorded. A shared dataset ID alone does not establish identical inputs.</p>
+        )}
         <div className="text-xs text-muted-foreground font-mono">
           {test.status === "completed" && test.results_summary && (
             <>
@@ -117,6 +142,7 @@ export function ABTestDetailPage() {
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="pb-2 pr-4 font-medium">Metric</th>
+                    <th className="pb-2 pr-4 font-medium">Paired / unscored</th>
                     <th className="pb-2 pr-4 font-medium">Mean Diff (A − B)</th>
                     <th className="pb-2 pr-4 font-medium">Std Dev</th>
                     <th className="pb-2 pr-4 font-medium">95% CI</th>
@@ -126,7 +152,7 @@ export function ABTestDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(metrics).map(([name, stats]: [string, any]) => (
+                  {Object.entries(metrics).map(([name, stats]) => (
                     <tr
                       key={name}
                       className={`border-b border-border/50 last:border-0 ${
@@ -135,16 +161,21 @@ export function ABTestDetailPage() {
                     >
                       <td className="py-3 pr-4 font-medium capitalize">
                         {name.replace("_", " ")}
+                        {stats.direction && <span className="block text-xs text-muted-foreground">{stats.direction} is better</span>}
                       </td>
                       <td className="py-3 pr-4 font-mono">
-                        {stats.mean_diff > 0 ? "+" : ""}
-                        {stats.mean_diff.toFixed(3)}
+                        {stats.n} / {stats.excluded_row_ids?.length ?? 0}
+                        {stats.coverage_status && <span className="block text-xs text-muted-foreground">Coverage: {stats.coverage_status}</span>}
+                        {stats.not_applicable_row_ids && stats.not_applicable_row_ids.length > 0 && <span className="block text-xs text-muted-foreground">{stats.not_applicable_row_ids.length} not applicable</span>}
+                      </td>
+                      <td className="py-3 pr-4 font-mono">
+                        {typeof stats.mean_diff === "number" ? `${stats.mean_diff > 0 ? "+" : ""}${stats.mean_diff.toFixed(3)}` : "—"}
                       </td>
                       <td className="py-3 pr-4 font-mono text-muted-foreground">
-                        {stats.std_dev.toFixed(3)}
+                        {typeof stats.std_dev === "number" ? stats.std_dev.toFixed(3) : "—"}
                       </td>
                       <td className="py-3 pr-4 font-mono text-muted-foreground">
-                        [{stats.ci_95[0].toFixed(3)}, {stats.ci_95[1].toFixed(3)}]
+                        {stats.ci_95 ? `[${stats.ci_95[0].toFixed(3)}, ${stats.ci_95[1].toFixed(3)}]` : "—"}
                       </td>
                       <td className="py-3 pr-4 font-mono text-muted-foreground">
                         {typeof stats.p_value === "number" ? stats.p_value.toFixed(4) : "—"}
@@ -169,7 +200,7 @@ export function ABTestDetailPage() {
                           <span className="text-sm font-semibold text-destructive">B</span>
                         )}
                         {stats.winner === "tie" && (
-                          <span className="text-sm text-muted-foreground">Tie</span>
+                          <span className="text-sm text-muted-foreground">Inconclusive</span>
                         )}
                       </td>
                     </tr>
@@ -196,16 +227,18 @@ export function ABTestDetailPage() {
                     <th className="pb-2 pr-4 font-medium">A Wins</th>
                     <th className="pb-2 pr-4 font-medium">B Wins</th>
                     <th className="pb-2 font-medium">Ties</th>
+                    <th className="pb-2 font-medium">Excluded metrics</th>
+                    <th className="pb-2 font-medium">Not applicable</th>
                   </tr>
                 </thead>
                 <tbody>
                   {test.per_sample_breakdown.map((row, idx) => (
                     <tr
-                      key={idx}
+                      key={row.dataset_row_id}
                       className="border-b border-border/50 last:border-0"
                     >
                       <td className="py-2 pr-4 font-mono text-muted-foreground">
-                        {idx + 1}
+                        <span title={row.dataset_row_id}>{idx + 1}</span>
                       </td>
                       <td className="py-2 pr-4">
                         {row.wins.a > 0 && (
@@ -228,6 +261,8 @@ export function ABTestDetailPage() {
                           </span>
                         )}
                       </td>
+                      <td className="py-2 text-xs text-muted-foreground">{row.excluded_metrics?.join(", ") || "None"}</td>
+                      <td className="py-2 text-xs text-muted-foreground">{row.not_applicable_metrics?.join(", ") || "None"}</td>
                     </tr>
                   ))}
                 </tbody>

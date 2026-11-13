@@ -1,90 +1,50 @@
-import { Outlet, Link } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Outlet, NavLink, Link, useLocation } from "react-router-dom";
 import { useAuth, UserButton } from "@clerk/clerk-react";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, GitBranch, Database, Cpu, ListChecks, GitCompare, Plug, ArrowUpRight } from "lucide-react";
+
+const navigation = [
+  { to: "/", label: "Prompt registry", icon: GitBranch, section: "Build", end: true },
+  { to: "/datasets", label: "Datasets", icon: Database, section: "Build" },
+  { to: "/models", label: "Model endpoints", icon: Cpu, section: "Build" },
+  { to: "/runs", label: "Evaluation runs", icon: ListChecks, section: "Evaluate" },
+  { to: "/ab-tests", label: "A/B comparisons", icon: GitCompare, section: "Evaluate" },
+  { to: "/connect", label: "Integrations", icon: Plug, section: "Connect" },
+];
+
+export function WorkbenchFrame({ children, account }: { children: ReactNode; account?: ReactNode }) {
+  const { pathname } = useLocation();
+  const current = pathname === "/compare" ? "Run comparison" : pathname.startsWith("/trends/") ? "Prompt trends" : [...navigation].reverse().find((item) => item.to !== "/" && pathname.startsWith(item.to))?.label ?? "Prompt registry";
+  return (
+    <div className="lab-layout">
+      <a href="#workspace" className="skip-link">Skip to workspace</a>
+      <aside className="lab-rail">
+        <Link to="/" className="lab-brand"><span className="lab-mark"><FlaskConical size={21} /></span><span>PromptLab<small>EVALUATION WORKBENCH</small></span></Link>
+        <nav aria-label="Workspace navigation" className="lab-navigation">
+          {["Build", "Evaluate", "Connect"].map((section) => (
+            <div className="lab-nav-group" key={section}>
+              <p className="lab-nav-label">{section}</p>
+              {navigation.filter((item) => item.section === section).map(({ to, label, icon: Icon, end }) => (
+                <NavLink key={to} to={to} end={end} className={({ isActive }) => `lab-nav-link ${isActive ? "is-active" : ""}`}>
+                  <Icon size={16} aria-hidden="true" /><span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="lab-rail-note"><span className="lab-nav-label">The evaluation loop</span><p>Version a prompt.<br />Test on fixed inputs.<br />Inspect the difference.</p><Link to="/runs/new">Configure an evaluation <ArrowUpRight size={14} /></Link></div>
+        <div className="lab-account">{account}<span className="font-mono text-xs">PromptLab / v0.1</span></div>
+      </aside>
+      <div className="lab-workspace">
+        <header className="lab-topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{current}</strong></span><Link to="/compare">Compare runs <ArrowUpRight size={14} /></Link></header>
+        <main id="workspace" tabIndex={-1}>{children}</main>
+        <footer className="lab-footer"><span>Observe. Review. Iterate.</span><span>Evaluation is evidence, not a release decision.</span></footer>
+      </div>
+    </div>
+  );
+}
 
 export function Shell() {
   const { isSignedIn } = useAuth();
-
-  return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Top bar */}
-      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center">
-          <div className="flex items-center gap-2 mr-8">
-            <FlaskConical className="h-5 w-5 text-primary" />
-            <span className="font-bold text-lg tracking-tight">
-              PromptLab
-            </span>
-          </div>
-
-          {isSignedIn && (
-            <nav className="flex items-center gap-6 text-sm font-medium">
-              <Link
-                to="/"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                Prompts
-              </Link>
-              <Link
-                to="/datasets"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                Datasets
-              </Link>
-              <Link
-                to="/models"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                Models
-              </Link>
-              <Link
-                to="/runs"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                Runs
-              </Link>
-              <Link
-                to="/ab-tests"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                A/B Tests
-              </Link>
-              <Link
-                to="/connect"
-                className="transition-colors hover:text-primary text-muted-foreground"
-              >
-                Connect
-              </Link>
-            </nav>
-          )}
-
-          <div className="ml-auto flex items-center gap-4">
-            {isSignedIn ? (
-              <UserButton afterSignOutUrl="/sign-in" />
-            ) : (
-              <Link
-                to="/sign-in"
-                className="text-sm font-medium text-primary hover:underline"
-              >
-                Sign In
-              </Link>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <main className="flex-1">
-        <Outlet />
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-border py-4">
-        <div className="container flex items-center justify-between text-xs text-muted-foreground">
-          <span>PromptLab v0.1.0</span>
-          <span className="font-mono">Built for rigorous eval</span>
-        </div>
-      </footer>
-    </div>
-  );
+  return <WorkbenchFrame account={isSignedIn ? <UserButton afterSignOutUrl="/sign-in" /> : <Link to="/sign-in">Sign in →</Link>}><Outlet /></WorkbenchFrame>;
 }

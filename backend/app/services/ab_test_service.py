@@ -7,30 +7,45 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.models.ab_test import ABTest
-from app.models.eval import EvalRun, EvalResult, MetricScore
+from app.models.eval import EvalRun, EvalResult
 from app.models.user import User
+from app.core.comparison import compare_scores, matching_eligibility
+from app.core.dataset_snapshot import snapshot_status
+from app.services.metrics import effective_score
 
 
 from app.core.stats import paired_stats as _paired_stats
 
 
-async def create_ab_test(
-    db: AsyncSession, name: str, eval_run_a_id: UUID, eval_run_b_id: UUID, owner: User
-) -> ABTest:
-    # Validate runs exist and are completed
+async def _owned_runs(db, eval_run_a_id, eval_run_b_id, owner_id):
+    if eval_run_a_id == eval_run_b_id:
+        raise ValueError("Choose two distinct eval runs")
     result = await db.execute(
-        select(EvalRun).where(EvalRun.id.in_([eval_run_a_id, eval_run_b_id]))
+        select(EvalRun).where(
+            EvalRun.id.in_([eval_run_a_id, eval_run_b_id]),
+            EvalRun.created_by == owner_id,
+        )
     )
     runs = result.scalars().all()
-    if len(runs) != 2:
+    # Defense in depth also protects against stale/historical comparisons.
+    by_id = {run.id: run for run in runs if run.created_by == owner_id}
+    if eval_run_a_id not in by_id or eval_run_b_id not in by_id:
         raise ValueError("One or both eval runs not found")
-
-    run_a, run_b = runs
+    run_a, run_b = by_id[eval_run_a_id], by_id[eval_run_b_id]
     if run_a.status != "completed" or run_b.status != "completed":
         raise ValueError("Both eval runs must be completed")
 
     if run_a.dataset_id != run_b.dataset_id:
         raise ValueError("Eval runs must use the same dataset")
+    if snapshot_status(getattr(run_a, "results_summary", None) or {}, getattr(run_b, "results_summary", None) or {}) == "different":
+        raise ValueError("Evaluation input snapshots differ; compare runs on identical dataset contents and samples")
+    return run_a, run_b
+
+
+async def create_ab_test(
+    db: AsyncSession, name: str, eval_run_a_id: UUID, eval_run_b_id: UUID, owner: User
+) -> ABTest:
+    run_a, run_b = await _owned_runs(db, eval_run_a_id, eval_run_b_id, owner.id)
 
     ab = ABTest(
         name=name,
@@ -56,6 +71,9 @@ async def compute_ab_test(db: AsyncSession, ab_test_id: UUID) -> ABTest:
     await db.commit()
 
     try:
+        run_a, run_b = await _owned_runs(
+            db, ab.eval_run_a_id, ab.eval_run_b_id, ab.created_by
+        )
         # Load results with scores
         res_a = await db.execute(
             select(EvalResult)
@@ -73,75 +91,39 @@ async def compute_ab_test(db: AsyncSession, ab_test_id: UUID) -> ABTest:
         )
         results_b = list(res_b.scalars().all())
 
-        # Build lookup by dataset_row_id
-        scores_a = {}
-        for r in results_a:
-            scores_a[str(r.dataset_row_id)] = {s.metric_name: s.score for s in r.scores}
+        def recorded_scores(results):
+            rows = {}
+            for result in results:
+                row_id = str(result.dataset_row_id)
+                if row_id in rows:
+                    raise ValueError("Duplicate results for a dataset row; comparison is ambiguous")
+                rows[row_id] = {
+                    score.metric_name: effective_score(score.score, score.human_score)
+                    for score in result.scores
+                }
+                rows[row_id].update({
+                    "latency_ms": result.latency_ms,
+                    "estimated_cost": result.estimated_cost,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                })
+            return rows
 
-        scores_b = {}
-        for r in results_b:
-            scores_b[str(r.dataset_row_id)] = {s.metric_name: s.score for s in r.scores}
+        def expected_count(run):
+            count = (run.results_summary or {}).get("total_samples")
+            return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
 
-        # Find common metrics
-        all_metrics = set()
-        for s in scores_a.values():
-            all_metrics.update(s.keys())
-        for s in scores_b.values():
-            all_metrics.update(s.keys())
-
-        summary = {}
-        per_sample = []
-
-        common_rows = set(scores_a.keys()) & set(scores_b.keys())
-
-        for metric in sorted(all_metrics):
-            diffs = []
-            for row_id in common_rows:
-                a_score = scores_a[row_id].get(metric)
-                b_score = scores_b[row_id].get(metric)
-                if a_score is not None and b_score is not None:
-                    diffs.append(a_score - b_score)
-
-            stats = _paired_stats(diffs)
-            summary[metric] = stats
-
-        # Per-sample breakdown
-        for row_id in common_rows:
-            row_wins = {"a": 0, "b": 0, "tie": 0}
-            for metric in all_metrics:
-                a_score = scores_a[row_id].get(metric)
-                b_score = scores_b[row_id].get(metric)
-                if a_score is not None and b_score is not None:
-                    if a_score > b_score:
-                        row_wins["a"] += 1
-                    elif b_score > a_score:
-                        row_wins["b"] += 1
-                    else:
-                        row_wins["tie"] += 1
-
-            per_sample.append({
-                "dataset_row_id": row_id,
-                "wins": row_wins,
-            })
-
-        # Overall winner
-        a_wins = sum(1 for m in summary.values() if m["winner"] == "a")
-        b_wins = sum(1 for m in summary.values() if m["winner"] == "b")
-        if a_wins > b_wins:
-            overall_winner = "a"
-        elif b_wins > a_wins:
-            overall_winner = "b"
-        else:
-            overall_winner = "tie"
-
+        summary, per_sample = compare_scores(
+            recorded_scores(results_a), recorded_scores(results_b),
+            expected_count(run_a), expected_count(run_b),
+            eligible_rows=matching_eligibility(run_a.results_summary or {}, run_b.results_summary or {}),
+        )
+        summary["dataset_snapshot_status"] = snapshot_status(run_a.results_summary or {}, run_b.results_summary or {})
+        if summary["dataset_snapshot_status"] != "matching":
+            summary["overall_winner"] = "tie"
+            summary["decision_note"] += " Historical input identity is unverified; no overall preference is declared."
         ab.status = "completed"
-        ab.results_summary = {
-            "metrics": summary,
-            "overall_winner": overall_winner,
-            "a_wins": a_wins,
-            "b_wins": b_wins,
-            "total_samples": len(common_rows),
-        }
+        ab.results_summary = summary
         ab.per_sample_breakdown = per_sample
         ab.completed_at = utcnow()
         await db.commit()

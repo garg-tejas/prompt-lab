@@ -17,6 +17,9 @@ module.exports = {
         display: ["Fraunces", "Georgia", "serif"],
       },
       colors: {
+        amber: { 500: "#865b1a" },
+        green: { 500: "#276348" },
+        red: { 500: "#a33b32" },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
